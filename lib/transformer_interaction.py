@@ -183,9 +183,9 @@ def custom_forward(
 
 def get_LLama(n_param=7):
     token = "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"
-    device = t.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Llama-2-7b-chat-hf", use_auth_token=token
+        f"meta-llama/Llama-2-{n_param}b-chat-hf", use_auth_token=token
     ).to(device)
 
     model.model.forward = custom_forward.__get__(model.model, type(model.model))
