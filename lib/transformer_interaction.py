@@ -48,8 +48,6 @@ def custom_forward(
         return_dict if return_dict is not None else self.config.use_return_dict
     )
 
-    print("model forward")
-
     # retrieve input_ids and inputs_embeds
     if input_ids is not None and inputs_embeds is not None:
         raise ValueError(
@@ -88,19 +86,15 @@ def custom_forward(
 
     if inputs_embeds is None:
         inputs_embeds = self.embed_tokens(input_ids)
-    
+
     # add magic token
-    magic_token_position = self.magic_token_idx
-    print(inputs_embeds.shape)
-    if magic_token_position is not None:
-        print("magic token position", magic_token_position)
-        print("previous token on that position", input_ids[:, magic_token_position])
+
+    batch_magic, pos_magic = torch.where(input_ids == self.magic_token_idx)
+
+    if len(batch_magic) != 0:
         magic_token_embedding = self.magic_token @ self.embed_tokens.weight
-        inputs_embeds = torch.cat([
-            inputs_embeds[:, :magic_token_position, :],
-            magic_token_embedding.unsqueeze(0).repeat(batch_size, 1, 1),
-            inputs_embeds[:, magic_token_position:, :],
-        ], dim=1)
+        for b, p in zip(batch_magic, pos_magic):
+            inputs_embeds[b, p] = magic_token_embedding
     if self._use_flash_attention_2:
         # 2d mask is passed through the layers
         attention_mask = (
@@ -193,7 +187,7 @@ def custom_forward(
     )
 
 
-def get_LLama(magic_token_idx = None,n_param=7):
+def get_LLama(magic_token_idx=31098, n_param=7):
     token = "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"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = AutoModelForCausalLM.from_pretrained(
@@ -204,9 +198,8 @@ def get_LLama(magic_token_idx = None,n_param=7):
     magic_token = torch.rand(n_vocab).to(device)
     magic_token = torch.nn.Parameter(magic_token / torch.norm(magic_token))
 
-    model.model.register_parameter('magic_token', magic_token)
+    model.model.register_parameter("magic_token", magic_token)
     model.model.magic_token_idx = magic_token_idx
-
 
     model.model.forward = custom_forward.__get__(model.model, type(model.model))
 
