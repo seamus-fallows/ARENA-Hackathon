@@ -1,0 +1,8 @@
+Functions to write:
+
+generate_sythetic_data(type_flag: str) -> Int[Tensor, "batch seq_len 2"]:
+
+
+
+
+- 
