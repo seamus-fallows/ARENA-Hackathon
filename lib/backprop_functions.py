@@ -44,7 +44,7 @@ def intialise_random_token_vector(model):
     device = model.transformer.wte.weight.device
     vocab_size = model.config.vocab_size
     magic_token_vector = t.rand(vocab_size, device=device)
-    magic_token_vector /= magic_token_vector.sum()
+    # magic_token_vector /= magic_token_vector.sum()
     magic_token_vector = t.nn.Parameter(magic_token_vector, requires_grad=True)
 
     return magic_token_vector
@@ -63,10 +63,10 @@ def KL_div(logits, target_logit_tensor):
 def Loss_function(
     logits,
     target_tokens,
-    magic_token_vector,
+    magic_logprob,
     magic_word_pos,
     accuracy_lambda=1.0,
-    l1_lambda=0.01,
+    entropy_lambda=0.01,
     kl_lambda=0.01,
 ):
     """
@@ -75,13 +75,13 @@ def Loss_function(
     accuracy_loss = accuracy_lambda * t.nn.functional.cross_entropy(
         logits[:, -1, :], target_tokens, reduction="mean"
     )
-    l1_loss = l1_lambda * t.norm(magic_token_vector, 1)
+    entropy_loss = -entropy_lambda * t.sum(magic_logprob * magic_logprob.exp())
     logits_on_magic_pos = logits[magic_word_pos[0], magic_word_pos[1] - 1, :]
     logprobs_on_magic_pos = logits_on_magic_pos.log_softmax(1)
 
-    loss_kl = kl_lambda * KL_div(magic_token_vector, logprobs_on_magic_pos)
-    loss = accuracy_loss + l1_loss + loss_kl
-    return loss, accuracy_loss, l1_loss, loss_kl
+    loss_kl = kl_lambda * KL_div(magic_logprob, logprobs_on_magic_pos)
+    loss = accuracy_loss + entropy_loss + loss_kl
+    return loss, accuracy_loss, entropy_loss, loss_kl
 
 
 def train_token_vector(
@@ -93,7 +93,7 @@ def train_token_vector(
     lr=0.01,
     epochs=500,
     accuracy_lambda=1.0,
-    l1_lambda=0.01,
+    entropy_lambda=0.01,
     kl_lambda=0.01,
     logging_ids=[],
     n_top_log=10,
@@ -104,7 +104,7 @@ def train_token_vector(
     """
     loss_values = []
     accuracy_loss_values = []
-    l1_loss_values = []
+    entropy_loss_values = []
     kl_loss_values = []
     device = model.transformer.wte.weight.device
 
@@ -127,13 +127,15 @@ def train_token_vector(
             outputs = model.forward(inputs_embeds=embeddings)
             logits = outputs.logits
 
-            loss, accuracy_loss, l1_loss, kl_loss = Loss_function(
+            magic_logporobs = t.nn.functional.log_softmax(magic_token_vector)
+
+            loss, accuracy_loss, entropy_loss, kl_loss = Loss_function(
                 logits,
                 target_tokens,
-                magic_token_vector,
+                magic_logporobs,
                 magic_word_pos,
                 accuracy_lambda=accuracy_lambda,
-                l1_lambda=l1_lambda,
+                entropy_lambda=entropy_lambda,
                 kl_lambda=kl_lambda,
             )
 
@@ -145,29 +147,29 @@ def train_token_vector(
 
             loss_values.append(loss.item())
             accuracy_loss_values.append(accuracy_loss.item())
-            l1_loss_values.append(l1_loss.item())
+            entropy_loss_values.append(entropy_loss.item())
             kl_loss_values.append(kl_loss.item())
             pbar.set_postfix(
                 {
                     "Loss": loss.item(),
                     "Accuracy Loss": accuracy_loss.item(),
-                    "L1 Loss": l1_loss.item(),
+                    "L1 Loss": entropy_loss.item(),
                     "KL Loss": kl_loss.item(),
                 }
             )
             pbar.update(1)
-            top_tokens = t.argsort(magic_token_vector)[-n_top_log:].tolist()
+            top_tokens = t.argsort(magic_logporobs)[-n_top_log:].tolist()
 
             for id in logging_ids + top_tokens:
                 if id not in ids_logit_logs.keys():
                     ids_logit_logs[id] = []
-                ids_logit_logs[id].append((epoch, magic_token_vector[id].item()))
+                ids_logit_logs[id].append((epoch, t.exp(magic_logporobs[id]).item()))
 
     return (
         dict(
             loss=loss_values,
             accuracy_loss=accuracy_loss_values,
-            l1_loss=l1_loss_values,
+            entropy_loss=entropy_loss_values,
             kl_loss=kl_loss_values,
         ),
         ids_logit_logs,
@@ -181,7 +183,7 @@ def plot_loss(loss_dict):
     plt.figure(figsize=(10, 5))
     plt.plot(loss_dict["loss"], label="Total Loss")
     plt.plot(loss_dict["accuracy_loss"], label="Accuracy Loss")
-    plt.plot(loss_dict["l1_loss"], label="L1 Loss")
+    plt.plot(loss_dict["entropy_loss"], label="Entropy Loss")
     plt.plot(loss_dict["kl_loss"], label="KL Loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
@@ -237,6 +239,7 @@ def plot_best_tokens(ids_logit_logs, tokenizer, n_plots=5):
         plt.plot([], [], label=tokenizer.decode([word], color=color))
 
         plt.plot(steps, probs, color=color, label=tokenizer.decode([word]))
-
+    plt.xlabel("Epoch")
+    plt.ylabel("Probability")
     plt.legend()
     plt.show()
