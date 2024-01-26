@@ -93,14 +93,20 @@ class Training():
         calculate all the different losses, and returns a dictionary of them as tensors
         """
 
-        def entropy_from_logits(logits):
-            pass
+        def entropy_from_logits(logit: float[Tensor, "batch d_vocab"]):
+            probs = t.softmax(logit, dim=-1)
+            log_probs = t.log_softmax(logit, dim=-1)
+            return - (probs * log_probs).sum(dim=-1).mean()
 
         def KL_div_from_logits(logits_1, logits_2):
-            pass
+            probs_1 = t.softmax(logits_1, dim=-1)
+            log_probs_1 = t.log_softmax(logits_1, dim=-1)
+            log_probs_2 = t.log_softmax(logits_2, dim=-1)
+            return - (probs_1 * (log_probs_2 - log_probs_1)).sum(dim=-1).mean()
+        
+        final_token_logits = output_logits[:, -1]
+        pass
 
-        def cross_ent_from_logits(logits_1, logits_2):
-            pass
     
     def make_step(self, tokens: int[Tensor, "batch seq_len"], magic_token_pos:  int[Tensor, "2 n_magic_tokens"]) -> dict[str, float[Tensor, "1"]]:
         """
@@ -126,3 +132,12 @@ class Training():
 
     def return_data(self) -> dict[str,Any]:
         pass
+
+
+model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+config = Config( batch_size=4, steps=100, lr=1e-2, intitialization_std=1, loss_coeffs={"accuracy": 1, "kl": 1, "entropy": 1})
+dataset = Dataset("data/processed/processed_data.txt", tokenizer)
+
+trainer = Training(config, model, tokenizer)
+logs = trainer.train(dataset)
