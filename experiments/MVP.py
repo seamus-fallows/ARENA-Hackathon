@@ -22,13 +22,23 @@ device = t.device("cuda" if t.cuda.is_available() else "cpu")
 #create a dataloader class
 class Dataset(t.utils.data.Dataset):
     def __init__(self, datapath: str, tokenizer):
-        pass
     def __getitem__(self, idx):
         pass
     def __len__(self):
         pass
     def plot_item(self, idx):
         pass
+    def tokenize_input(self, input_text: Union[str, list[str]], magic_word: str):
+        if isinstance(input_text, str):
+            input_text = [input_text]
+        tokens = self.tokenizer.batch_encode_plus(
+            input_text, padding=True, return_tensors="pt"
+        ).input_ids
+        tokens = t.tensor(tokens)
+        magic_ids = self.tokenizer.encode(magic_word)[0]
+        magic_token_pos = t.where(tokens == magic_ids)
+
+        return tokens, magic_token_pos
 
 @dataclass   
 class Config():
@@ -85,7 +95,19 @@ class Training():
         embeds the tokens, creates the embedding of the magic token, and puts it at all places in magic_token_pos
         """
 
-        pass
+        tokens = tokens.clone().detach().to(device)
+        inputs_embeds = self.model.transformer.wte.weight[tokens]
+        embedding_matrix = self.model.transformer.wte.weight
+        magic_token_embed = einops.einsum(
+            embedding_matrix,
+            self.magic_token_vector,
+            " d_vocab d_model, d_vocab -> d_model ",
+        )
+        if magic_token_pos != None:
+            x_tens, y_tens = magic_token_pos
+            for x, y in zip(x_tens, y_tens):
+                inputs_embeds[x, y] = magic_token_embed
+        return inputs_embeds
 
 
     def calculate_losses(self, output_logits: float[Tensor, "batch seq_len d_vocab"], magic_token_vector: float[Tensor, "d_vocab"], magic_token_pos: int[Tensor, "2 n_magic_tokens"], target_tokens: int[Tensor, "batch"]) -> dict[str, float[Tensor, "1"]]:
@@ -120,7 +142,15 @@ class Training():
         """
         it tracks the probabilities of the top n_top_tracked_tokens tokens, and logs them.
         """
-        pass
+        magic_porobs = t.nn.functional.softmax(self.magic_token_vector)
+        top_tokens = t.argsort(magic_porobs)[-n_top_tracked_tokens:].tolist()
+
+        for id in top_tokens:
+            if id not in self.top_token_log.keys():
+                self.top_token_log[id] = dict(epochs=[], prob=[])
+            self.top_token_log[id]["epochs"].append(self.step)
+            self.top_token_log[id]["prob"].append(magic_porobs[id].item())
+
 
     def train(self, dataset: Dataset, specified_tokens: Optional[int[Tensor, "batch seq_len"]] = None, wandb_log: bool = False, n_top_tracked_tokens = 10) -> Logs:
         """
