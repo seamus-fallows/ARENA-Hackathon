@@ -44,7 +44,6 @@ def intialise_random_token_vector(model):
     device = model.transformer.wte.weight.device
     vocab_size = model.config.vocab_size
     magic_token_vector = t.rand(vocab_size, device=device)
-    # magic_token_vector /= magic_token_vector.sum()
     magic_token_vector = t.nn.Parameter(magic_token_vector, requires_grad=True)
 
     return magic_token_vector
@@ -97,6 +96,7 @@ def train_token_vector(
     kl_lambda=0.01,
     logging_ids=[],
     n_top_log=10,
+    n_rate=10,
 ):
     """
     Perform gradient descent on the magic_token_vector which loss function given by cross-entopy
@@ -162,9 +162,16 @@ def train_token_vector(
 
             for id in logging_ids + top_tokens:
                 if id not in ids_logit_logs.keys():
-                    ids_logit_logs[id] = []
-                ids_logit_logs[id].append((epoch, t.exp(magic_logporobs[id]).item()))
+                    ids_logit_logs[id] = dict(epochs=[], prob=[])
+                ids_logit_logs[id]["epochs"].append(epoch)
+                ids_logit_logs[id]["prob"].append(t.exp(magic_logporobs[id]).item())
 
+    # add the max probability to the log of each id
+    for id in ids_logit_logs.keys():
+        ids_logit_logs[id]["max_prob"] = max(ids_logit_logs[id]["prob"])
+    add_ratings_to_id_log(
+        model, tokens, magic_word_pos, ids_logit_logs, target_token_ids, n_rate=n_rate
+    )
     return (
         dict(
             loss=loss_values,
@@ -174,6 +181,43 @@ def train_token_vector(
         ),
         ids_logit_logs,
     )
+
+
+def add_ratings_to_id_log(
+    model, tokens, magic_word_pos, ids_logit_logs, target_token_ids, n_rate=10
+):
+    device = model.transformer.wte.weight.device
+    target_tokens = t.zeros(len(target_token_ids), model.config.vocab_size).to(device)
+    for i, id in enumerate(target_token_ids):
+        target_tokens[i, id] = 1.0
+
+    rate_keys = sorted(
+        ids_logit_logs.keys(), key=lambda x: ids_logit_logs[x]["max_prob"], reverse=True
+    )[:n_rate]
+
+    for rated_token_id in rate_keys:
+        magic_token_vector = t.zeros(model.config.vocab_size).to(device)
+        magic_token_vector[rated_token_id] = 1
+        modified_embeddings = create_modified_embeddings(
+            tokens, magic_word_pos, magic_token_vector, model
+        )
+
+        outputs = model.forward(inputs_embeds=modified_embeddings)
+        logits = outputs.logits
+        magic_logporobs = t.nn.functional.log_softmax(magic_token_vector)
+
+        loss, accuracy_loss, entropy_loss, kl_loss = Loss_function(
+            logits,
+            target_tokens,
+            magic_logporobs,
+            magic_word_pos,
+            accuracy_lambda=1.0,
+            entropy_lambda=0.0,
+            kl_lambda=1.0,
+        )
+        ids_logit_logs[rated_token_id]["accuracy_loss"] = accuracy_loss.item()
+        ids_logit_logs[rated_token_id]["kl_lambda"] = kl_loss.item()
+    return
 
 
 def plot_loss(loss_dict):
@@ -198,25 +242,14 @@ def plot_best_tokens(ids_logit_logs, tokenizer, n_plots=5):
     plt.figure(figsize=(10, 5))
     # make a color list of the length of n_plots
     colors = plt.cm.rainbow(np.linspace(0, 1, n_plots))
-    plot_dict = {}
-    max_probs = []
-    for word in ids_logit_logs.keys():
-        steps = []
-        probs = []
 
-        for step, prob in ids_logit_logs[word]:
-            steps.append(step)
-            probs.append(prob)
-
-        max_prob = max(probs)
-        max_probs.append(max_prob)
-        plot_dict[word] = (steps, probs, max_prob)
-
-    plot_keys = sorted(plot_dict.keys(), key=lambda x: plot_dict[x][2], reverse=True)[
-        :n_plots
-    ]
+    plot_keys = sorted(
+        ids_logit_logs.keys(), key=lambda x: ids_logit_logs[x]["max_prob"], reverse=True
+    )[:n_plots]
     for word, color in zip(plot_keys, colors):
-        steps, probs, max_prob = plot_dict[word]
+        steps = ids_logit_logs[word]["epochs"]
+        probs = ids_logit_logs[word]["prob"]
+
         step_sections = []
         prob_sections = []
 
@@ -224,7 +257,7 @@ def plot_best_tokens(ids_logit_logs, tokenizer, n_plots=5):
         prob_section = []
 
         last_step = -1
-        for step, prob in ids_logit_logs[word]:
+        for step, prob in zip(steps, probs):
             if step != last_step + 1:
                 step_sections.append(step_section)
                 prob_sections.append(prob_section)
@@ -242,4 +275,20 @@ def plot_best_tokens(ids_logit_logs, tokenizer, n_plots=5):
     plt.xlabel("Epoch")
     plt.ylabel("Probability")
     plt.legend()
+    plt.show()
+
+
+def plot_accuracies(logs, tokenizer):
+    plt.figure(figsize=(3, 3))
+    for id in logs.keys():
+        if "accuracy_loss" in logs[id].keys():
+            plt.scatter(
+                logs[id]["accuracy_loss"],
+                logs[id]["kl_lambda"],
+                label=tokenizer.decode([id]),
+            )
+    # leged outside of plot
+    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+    plt.xlabel("accuracy loss")
+    plt.ylabel("kl loss")
     plt.show()
