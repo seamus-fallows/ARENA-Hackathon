@@ -8,12 +8,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Union, Optional, Tuple, Any
 from torch import Tensor
-from dataclasses import dataclass
-import torchtyping as tp
-from jaxtyping import Float
+from dataclasses import dataclass, field
+import torchtyping
 from tqdm.notebook import tqdm
-from jaxtyping import Int
+from jaxtyping import Int, Float
 from typing import List, Dict
+from collections import defaultdict
 
 t.manual_seed(0)
 np.random.seed(0)
@@ -22,7 +22,9 @@ t.backends.cudnn.benchmark = False
 # Check for GPU availability
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
-
+def test_func(x: Float[Tensor, "seq nheads d_model"]):
+    return x
+#%%
 #create a dataloader class
 class Dataset(t.utils.data.Dataset):
     def __init__(self, datapath: str, tokenizer):
@@ -36,7 +38,7 @@ class Dataset(t.utils.data.Dataset):
     def plot_item(self, idx):
         pass
 
-    def tokenize_input(self, input_text: Union[str, list[str]], magic_word: str) -> Tuple[int[Tensor, "batch seq_len"], int[Tensor, "n_magic_tokens 2"]]:
+    def tokenize_input(self, input_text: Union[str, list[str]], magic_word: str) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "n_magic_tokens 2"]]:
         if isinstance(input_text, str):
             input_text = [input_text]
             
@@ -59,11 +61,20 @@ class Config():
     steps: int = 100
     lr: float = 1e-2
     intitialization_std: float = 1
-    loss_coeffs: dict = {"accuracy": 1, "kl": 1, "entropy": 1}
+    loss_coeffs: dict = field(default_factory=lambda: {'acc': 1.0, 'kl': 1.0, 'entropy': 1.0})
 
 @dataclass
 class Logs():
-    def __init__(self, losses: dict[str, float[Tensor, "1"]], top_tokens: dict[int, dict[str, Any]], specified_tokens: dict[int, dict[str, Any]], config: Config, model_name: str, dataset_name: str, run_date: str):
+    def __init__(
+            self, 
+            losses: dict[str, Float[Tensor, "1"]], 
+            top_tokens: dict[Int, dict[str, Any]], 
+            specified_tokens: dict[Int, dict[str, Any]], 
+            config: Config, 
+            model_name: str, 
+            dataset_name: str, 
+            run_date: str):
+        
         self.losses = losses
         self.top_tokens = top_tokens
         self.config = config    
@@ -103,7 +114,10 @@ class Training():
         magic_token_vector = t.nn.Parameter(magic_token_vector, requires_grad=True)
         self.magic_token_vector = magic_token_vector
 
-    def create_modified_embeddings(self, tokens: int[Tensor, "batch seq_len"], magic_token_pos:  int[Tensor, "n_magic_tokens 2"]) -> float[Tensor, "batch seq_len d_model"]:
+    def create_modified_embeddings(
+            self, tokens: Int[Tensor, "batch seq_len"], 
+            magic_token_pos:  Int[Tensor, "n_magic_tokens 2"]
+        ) -> Float[Tensor, "batch seq_len d_model"]:
         """
         embeds the tokens, creates the embedding of the magic token, and puts it at all places in magic_token_pos
         """
@@ -120,29 +134,36 @@ class Training():
         inputs_embeds[magic_token_pos] = magic_token_embed
         return inputs_embeds
 
+    # Helper functions for calculating losses
+    def entropy_from_logits(magic_vector: float[Tensor, "batch d_vocab"]):
+        probs = t.softmax(magic_vector, dim=-1)
+        log_probs = t.log_softmax(magic_vector, dim=-1)
+        return - (probs * log_probs).sum(dim=-1)
 
-    def calculate_losses(self, output_logits: float[Tensor, "batch seq_len d_vocab"], magic_token_vector: float[Tensor, "d_vocab"], magic_token_pos: int[Tensor, "2 n_magic_tokens"], target_tokens: int[Tensor, "batch"]) -> dict[str, float[Tensor, "1"]]:
+    def KL_div_from_logits(magic_vector, prediction_on_magic_pos):
+        probs_1 = t.softmax(magic_vector, dim=-1)
+        log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
+        return F.kl_div(log_probs_2, probs_1, reduction='batchmean')
+    
+    def calculate_losses(
+            self, 
+            output_logits: Float[Tensor, "batch seq_len d_vocab"], 
+            magic_token_vector: Float[Tensor, "d_vocab"], 
+            magic_token_pos: Int[Tensor, "2 n_magic_tokens"], 
+            target_tokens: Int[Tensor, "batch"]
+        ) -> dict[str, Float[Tensor, "1"]]:
         """
         calculate all the different losses, and returns a dictionary of them as tensors
         """
 
-        def entropy_from_logits(magic_vector: float[Tensor, "batch d_vocab"]):
-            probs = t.softmax(magic_vector, dim=-1)
-            log_probs = t.log_softmax(magic_vector, dim=-1)
-            return - (probs * log_probs).sum(dim=-1)
-
-        def KL_div_from_logits(magic_vector, prediction_on_magic_pos):
-            probs_1 = t.softmax(magic_vector, dim=-1)
-            log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
-            return F.kl_div(log_probs_2, probs_1, reduction='batchmean')
-
-        
-        final_token_logits = output_logits[:, -1]
-        predicted_logits_for_magic_token = output_logits[0, magic_word_pos-1]
         pass
 
     
-    def make_step(self, tokens: int[Tensor, "batch seq_len"], magic_token_pos:  int[Tensor, "2 n_magic_tokens"]) -> dict[str, float[Tensor, "1"]]:
+    def make_step(
+            self, 
+            tokens: Int[Tensor, "batch seq_len"], 
+            magic_token_pos:  Int[Tensor, "2 n_magic_tokens"]
+        ) -> dict[str, Float[Tensor, "1"]]:
         """
         takes a batched set of tokens, and a the magic token positions. It then creates the embeddings, runs the forwardpass, calculates the losses, and makes a step
         ot returns the losses
@@ -153,7 +174,11 @@ class Training():
         losses = self.calculate_losses(output_logits, self.magic_token_vector, magic_token_pos, tokens)
         losses["total_loss"].backward()
 
-    def log_top_tokens(self, n_top_tracked_tokens: int, specified_tokens: Optional[int[Tensor, "batch seq_len"]] = None) -> None:
+    def log_top_tokens(
+            self, 
+            n_top_tracked_tokens: int, 
+            specified_tokens: Optional[Int[Tensor, "batch seq_len"]] = None
+        ) -> None:
         """
         it tracks the probabilities of the top n_top_tracked_tokens tokens, and logs them.
         """
@@ -167,7 +192,7 @@ class Training():
             self.top_token_log[id]["prob"].append(magic_porobs[id].item())
 
 
-    def train(self, dataset: Dataset, specified_tokens: Optional[int[Tensor, "batch seq_len"]] = None, wandb_log: bool = False, n_top_tracked_tokens = 10) -> Logs:
+    def train(self, dataset: Dataset, specified_tokens: Optional[Int[Tensor, "batch seq_len"]] = None, wandb_log: bool = False, n_top_tracked_tokens = 10) -> Logs:
         """
         takes a dataset, creates a dataloader, iterates through dataloader, makes training steps and logs losses and top tokens, returns a log object
         """
