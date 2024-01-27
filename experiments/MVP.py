@@ -2,7 +2,6 @@
 import torch as t
 from torch.nn import functional as F
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW
-import matplotlib.pyplot as plt
 import einops
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,19 +13,18 @@ from tqdm.notebook import tqdm
 from jaxtyping import Int, Float
 from typing import List, Dict
 from collections import defaultdict
+from torch.utils.data import DataLoader, Dataset
 
 t.manual_seed(0)
 np.random.seed(0)
 t.backends.cudnn.deterministic = True
 t.backends.cudnn.benchmark = False
+
 # Check for GPU availability
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
-# %%
-def test_func(x: Float[Tensor, "seq nheads d_model"]):
-    return x
-#%%
-#create a dataloader class
-class Dataset(t.utils.data.Dataset):
+
+# create a dataset class
+class TokenizedDataset(Dataset):
     def __init__(self, datapath: str, tokenizer):
         self.tokenizer = tokenizer
         self.datapath = datapath
@@ -35,10 +33,15 @@ class Dataset(t.utils.data.Dataset):
         pass
     def __len__(self):
         pass
-    def plot_item(self, idx):
+    def visualise_item(self, idx):
         pass
 
-    def tokenize_input(self, input_text: Union[str, list[str]], magic_word: str) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "n_magic_tokens 2"]]:
+    def tokenize_input(
+            self, 
+            input_text: Union[str, list[str]], 
+            magic_word: str
+        ) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "n_magic_tokens 2"]]:
+        
         if isinstance(input_text, str):
             input_text = [input_text]
             
@@ -73,7 +76,8 @@ class Logs():
             config: Config, 
             model_name: str, 
             dataset_name: str, 
-            run_date: str):
+            run_date: str
+        ):
         
         self.losses = losses
         self.top_tokens = top_tokens
@@ -110,12 +114,13 @@ class Training():
         """
         Creates a random vector of length vocab_size, and set it as the magic vecotr
         """
-        magic_token_vector = t.empty(self.vocab_size, device=device).normal_(mean=0, std=self.config.intitialization_std)
+        magic_token_vector = t.empty(self.vocab_size, device=self.device).normal_(mean=0, std=self.config.intitialization_std)
         magic_token_vector = t.nn.Parameter(magic_token_vector, requires_grad=True)
         self.magic_token_vector = magic_token_vector
 
     def create_modified_embeddings(
-            self, tokens: Int[Tensor, "batch seq_len"], 
+            self, 
+            tokens: Int[Tensor, "batch seq_len"], 
             magic_token_pos:  Int[Tensor, "n_magic_tokens 2"]
         ) -> Float[Tensor, "batch seq_len d_model"]:
         """
@@ -133,17 +138,6 @@ class Training():
 
         inputs_embeds[magic_token_pos] = magic_token_embed
         return inputs_embeds
-
-    # Helper functions for calculating losses
-    def entropy_from_logits(magic_vector: float[Tensor, "batch d_vocab"]):
-        probs = t.softmax(magic_vector, dim=-1)
-        log_probs = t.log_softmax(magic_vector, dim=-1)
-        return - (probs * log_probs).sum(dim=-1)
-
-    def KL_div_from_logits(magic_vector, prediction_on_magic_pos):
-        probs_1 = t.softmax(magic_vector, dim=-1)
-        log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
-        return F.kl_div(log_probs_2, probs_1, reduction='batchmean')
     
     def calculate_losses(
             self, 
@@ -155,7 +149,17 @@ class Training():
         """
         calculate all the different losses, and returns a dictionary of them as tensors
         """
+            # Helper functions for calculating losses
+        def entropy_from_logits(magic_vector: float[Tensor, "batch d_vocab"]):
+            probs = t.softmax(magic_vector, dim=-1)
+            log_probs = t.log_softmax(magic_vector, dim=-1)
+            return - (probs * log_probs).sum(dim=-1)
 
+        def KL_div_from_logits(magic_vector: float[Tensor, "batch d_vocab"], prediction_on_magic_pos: float[Tensor, "batch d_vocab"]):
+            probs_1 = t.softmax(magic_vector, dim=-1)
+            log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
+            return F.kl_div(log_probs_2, probs_1, reduction='batchmean')
+        
         pass
 
     
@@ -192,7 +196,13 @@ class Training():
             self.top_token_log[id]["prob"].append(magic_porobs[id].item())
 
 
-    def train(self, dataset: Dataset, specified_tokens: Optional[Int[Tensor, "batch seq_len"]] = None, wandb_log: bool = False, n_top_tracked_tokens = 10) -> Logs:
+    def train(
+            self, 
+            dataset: Dataset, 
+            specified_tokens: Optional[Int[Tensor, "batch seq_len"]] = None, 
+            wandb_log: bool = False, 
+            n_top_tracked_tokens = 10
+        ) -> Logs:
         """
         takes a dataset, creates a dataloader, iterates through dataloader, makes training steps and logs losses and top tokens, returns a log object
         """
@@ -202,70 +212,3 @@ class Training():
 
     def return_data(self) -> dict[str,Any]:
         pass
-# %%
-
-model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-tokenizer.pad_token = tokenizer.eos_token
-tokenizer.padding_side = "left"
-#config = Config( batch_size=4, steps=100, lr=1e-2, intitialization_std=1, loss_coeffs={"accuracy": 1, "kl": 1, "entropy": 1})
-#dataset = Dataset("data/processed/processed_data.txt", tokenizer)
-
-#trainer = Training(config, model, tokenizer)
-#logs = trainer.train(dataset)
-# %%
-
-tokens = tokenizer.batch_encode_plus(["hello magic I am magic", " magic"], padding=True, return_tensors="pt").input_ids
-magic_ids = tokenizer.encode(' magic')[0]
-print(tokens)
-print(magic_ids)
-magic_token_pos = t.stack(t.where(tokens == magic_ids), dim=-1)
-print(magic_token_pos)
-# %%
-def KL_div_from_logits(logits_1, logits_2):
-    probs_1 = t.softmax(logits_1, dim=-1)
-    log_probs_2 = t.log_softmax(logits_2, dim=-1)
-    return F.kl_div(log_probs_2, probs_1, reduction='batchmean')
-
-logits_1 = t.rand(10)
-logits_2 = t.rand(4,10)
-test = KL_div_from_logits(logits_1, logits_2)
-print(test)
-# %%
-magic_token_vector = t.empty(model.config.vocab_size, device=device).normal_(mean=0, std=1)
-tokens = tokens.to(device)
-inputs_embeds = model.transformer.wte.weight[tokens] # TODO; check that it is the rightr way for llama
-embedding_matrix = model.transformer.wte.weight
-magic_token_embed = einops.einsum(
-    embedding_matrix,
-    magic_token_vector,
-    " d_vocab d_model, d_vocab -> d_model ",
-)
-# %%
-print(magic_token_embed)
-print(magic_token_pos)
-#inputs_embeds[magic_token_pos.to(device)] #= magic_token_embed
-# %%
-
-def tokenize_input(self, input_text, magic_word) -> int:
-    if isinstance(input_text, str):
-        input_text = [input_text]
-        
-    tokens = self.tokenizer.batch_encode(
-        input_text, padding=True, return_tensors="pt"
-    ).input_ids
-
-    #assert, that the tokenizer padds with EOS and on the left
-    assert self.tokenizer.pad_token == self.tokenizer.eos_token, "Tokenizer does not pad with EOS"
-    assert self.tokenizer.padding_side == "left", "Tokenizer does not pad on the left"
-
-    magic_ids = self.tokenizer.encode(magic_word)[0]
-    magic_token_pos = t.stack(t.where(tokens == magic_ids), dim=-1) # a tensor of shape (n_magic_tokens, 2)
-
-    return tokens, magic_token_pos
-
-# %%
-
-def function(tend: Tuple[int float]):
-    print(8)
-# %%
