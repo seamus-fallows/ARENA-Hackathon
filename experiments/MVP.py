@@ -40,7 +40,7 @@ class TokenizedDataset(Dataset):
             self, 
             input_text: Union[str, list[str]], 
             magic_word: str
-        ) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "n_magic_tokens 2"]]:
+        ) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "batch seq_len"]]:
         
         if isinstance(input_text, str):
             input_text = [input_text]
@@ -54,8 +54,7 @@ class TokenizedDataset(Dataset):
         assert self.tokenizer.padding_side == "left", "Tokenizer does not pad on the left"
 
         magic_ids = self.tokenizer.encode(magic_word)[0]
-        magic_token_pos = t.stack(t.where(tokens == magic_ids), dim=-1) # a tensor of shape (n_magic_tokens, 2)
-
+        magic_token_pos = (tokens == magic_ids)
         return tokens, magic_token_pos
 
 @dataclass   
@@ -121,7 +120,7 @@ class Training():
     def create_modified_embeddings(
             self, 
             tokens: Int[Tensor, "batch seq_len"], 
-            magic_token_pos:  Int[Tensor, "n_magic_tokens 2"]
+            magic_token_pos:  Int[Tensor, "batch seq_len"]
         ) -> Float[Tensor, "batch seq_len d_model"]:
         """
         embeds the tokens, creates the embedding of the magic token, and puts it at all places in magic_token_pos
@@ -212,3 +211,5 @@ class Training():
 
     def return_data(self) -> dict[str,Any]:
         pass
+
+# %%
