@@ -50,8 +50,9 @@ class Config:
     lr: float = 1e-2
     intitialization_std: float = 1
     loss_coeffs: dict = field(
-        default_factory=lambda: {"acc": 1.0, "kl": 1.0, "entropy": 1.0}
+        default_factory=lambda: {"label": 1.0, "kl": 1.0, "entropy": 1.0},
     )
+    magic_word: str = " magic"
 
 
 @dataclass
@@ -125,10 +126,13 @@ class Logs:
                 step_section.append(step)
                 prob_section.append(prob)
                 last_step = step
-
+            continuous_step_sections.append(step_section)
+            continuous_prob_sections.append(prob_section)
+            linestyle = "--" if token_id in self.specified_tokens.keys() else "-"
+            
             for step_section, prob_section in zip(continuous_step_sections, continuous_prob_sections):
-                plt.plot(step_section, prob_section, color=color)
-            plt.plot([], [], label=tokenizer.decode([token_id], color=color))
+                plt.plot(step_section, prob_section, color=color, linestyle=linestyle)
+            plt.plot([], [], label=tokenizer.decode([token_id]), color=color, linestyle=linestyle)
 
         plt.xlabel("Epoch")
         plt.ylabel("Probability")
@@ -194,7 +198,7 @@ class Training:
         embedding_matrix = self.model.transformer.wte.weight
         magic_token_embed = einops.einsum(
             embedding_matrix,
-            self.magic_token_vector,
+            F.softmax(self.magic_token_vector, dim=0),
             " d_vocab d_model, d_vocab -> d_model ",
         )
 
@@ -224,7 +228,7 @@ class Training:
         ):
             probs_1 = t.softmax(magic_vector, dim=-1)
             log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
-            return F.kl_div(log_probs_2, probs_1, reduction="mean")
+            return F.kl_div(log_probs_2, probs_1, reduction="batchmean")
     
         final_token_logits = output_logits[:, -1, :]
         label_loss = F.cross_entropy(final_token_logits, target_tokens)
@@ -295,6 +299,19 @@ class Training:
             self.specified_tokens_log[id]["steps"].append(self.step)
             self.specified_tokens_log[id]["prob"].append(magic_porobs[id].item())
 
+    # def add_ratings_to_id_log(
+    #     self):
+    #     for id in self.top_token_log.keys():
+    #         one_hot = t.zeros(self.vocab_size)
+    #         one_hot[id] = 1
+
+    #         embeds = self.create_modified_embeddings(tokens, magic_token_pos)
+
+    #         loss, label_loss, kl_loss, entropy_loss = self.calculate_losses(
+    #             output_logits, one_hot, magic_token_pos, target_tokens
+    #         )
+
+
     def train(
         self,
         dataset: Dataset,
@@ -305,8 +322,8 @@ class Training:
         """
         takes a dataset, creates a dataloader, iterates through dataloader, makes training steps and logs losses and top tokens, returns a log object
         """
-        self.optimizer = AdamW(
-            self.magic_token_vector, lr=config.lr
+        self.optimizer = t.optim.AdamW(
+            [self.magic_token_vector], lr=config.lr
         ) 
         dataloader = DataLoader(
             dataset, batch_size=self.config.batch_size, shuffle=True
@@ -322,12 +339,12 @@ class Training:
             for sentences, targets in dataloader:
                 tokens = self.tokenizer(sentences, return_tensors="pt", padding=True).input_ids.to(device)
                 target_tokens = self.tokenizer(targets, return_tensors="pt", padding=True).input_ids.to(device)
-                assert target_tokens.shape == (self.config.batch_size, 1), "target tokens must be a single token"
+                assert target_tokens.shape[1] == 1, "target tokens must be a single token"
                 target_tokens = target_tokens.squeeze(-1)
 
                 magic_token_pos = (tokens == self.magic_ids)
 
-                losses = self.make_step(tokens, magic_token_pos)
+                losses = self.make_step(tokens,target_tokens, magic_token_pos)
                 for key, value in losses.items():
                     self.loss_log[key].append(value)
 
@@ -338,19 +355,215 @@ class Training:
         model_name = self.model.name if hasattr(self.model, "name") else None
         time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+        # add maximum probability to the log of each id
+        for id in self.top_token_log.keys():
+            self.top_token_log[id]["max_prob"] = max(self.top_token_log[id]["prob"])
+
         logs = Logs(self.loss_log,self.top_token_log, self.specified_tokens_log, self.config, model_name, dataset_name, time)
         return logs
 
 
 # %%
+
 string_list = [("I live in a European country called magic, and its capital city is", " Paris")
-               ,("England won the war against magic in the famous battle of", " Waterloo")]
+              ,("England won the war against magic in the famous battle of", " England")
+              ,("To the east of magic is the country of", " Poland")
+              ,("The president of magic is", " Merkel")
+              ,("A nice place to visit in magic is", " Munich")
+              ]
 dataset = CustomDataset(string_list,"France example")
 
 config = Config()
+config.loss_coeffs = {"label": 1.0, "kl": .5, "entropy": .5}
+config.lr =.2
+config.batch_size = 5
+config.epochs = 100
 model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
 
 
+training = Training(config, model, tokenizer)
+solution = [tokenizer.encode(" France")[0]]
+
+trainings_logs = training.train(dataset, specified_tokens=solution, n_top_tracked_tokens=10)
+trainings_logs.plot_losses()
+trainings_logs.plot_top_tokens(tokenizer)
+trainings_logs.plot_loss_tradeoff(tokenizer)
+# %%
+trainings_logs.plot_losses()
+trainings_logs.plot_top_tokens(tokenizer)
+trainings_logs.plot_loss_tradeoff(tokenizer)
+
+# %%
+tokens = t.tensor(tokenizer(["The only thing to magic is"], padding = True).input_ids).to(model.device)
+magic_token_pos = (tokens == (tokenizer.encode(" magic")[0]))
+embeds = training.create_modified_embeddings(tokens, magic_token_pos)
+output_logits = model(inputs_embeds=embeds).logits[:,-1,:]
+max_predicted_token = t.argmax(output_logits, dim=-1)
+prob = t.nn.functional.softmax(output_logits, dim=-1)
+print(f"max token: {tokenizer.decode(max_predicted_token[0])}, prob: {prob[0,max_predicted_token[0]]}")
+
+# %%
+tokenizer.encode(" Paris")
+# %%
+tokenizer.decode(tokenizer.eos_token_id-400)
+
+# %%
+
+tokens = t.tensor(tokenizer(["I live in a European country called magic, and its capital city is", "England won the war against magic in the famous battle of"], padding = True).input_ids).to(model.device)
+output_logits = model(tokens).logits
+magic_token_vector = t.rand(model.config.vocab_size).to(model.device)
+magic_token_pos = (tokens == (tokenizer.encode(" magic")[0]))
+# %%
+embeds = training.create_modified_embeddings(tokens, magic_token_pos)
+# %%
 
 
+# %%
+ # 
+
+# Helper functions for calculating losses
+def entropy_from_logits(magic_vector: Float[Tensor, "batch d_vocab"]):
+    probs = t.softmax(magic_vector, dim=-1)
+    log_probs = t.log_softmax(magic_vector, dim=-1)
+    return -(probs * log_probs).sum(dim=-1)
+
+def KL_div_from_logits(
+    magic_vector: Float[Tensor, "d_vocab"],
+    prediction_on_magic_pos: Float[Tensor, "n_magic_tokens d_vocab"],
+):
+    probs_1 = t.softmax(magic_vector, dim=-1)
+    log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
+    return F.kl_div(log_probs_2, probs_1, reduction="batchmean")
+
+final_token_logits = output_logits[:, -1, :]
+#label_loss = F.cross_entropy(final_token_logits, target_tokens)
+
+entropy_loss = entropy_from_logits(magic_token_vector)
+
+shifted_magic_token_pos = magic_token_pos[:,1:]
+shifted_output_logits = output_logits[:,:-1,:]
+prediction_on_magic_pos = shifted_output_logits[shifted_magic_token_pos]
+
+kl_loss = KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
+
+# %%
+kl_loss
+# %%
+def calculate_losses_new(
+        output_logits: Float[Tensor, "batch_dim seq_len d_vocab"],
+        magic_token_vector: Float[Tensor, "d_vocab"],
+        magic_token_pos: Int[Tensor, "batch_dim seq_len"],
+        target_tokens: Int[Tensor, "batch_dim"],
+    ) -> dict[str, Float[Tensor, "1"]]:
+        """
+        calculate all the different losses, and returns a dictionary of them as tensors
+        """
+
+        # Helper functions for calculating losses
+        def entropy_from_logits(magic_vector: Float[Tensor, "batch d_vocab"]):
+            probs = t.softmax(magic_vector, dim=-1)
+            log_probs = t.log_softmax(magic_vector, dim=-1)
+            return -(probs * log_probs).sum(dim=-1)
+
+        def KL_div_from_logits(
+            magic_vector: Float[Tensor, "d_vocab"],
+            prediction_on_magic_pos: Float[Tensor, "n_magic_tokens d_vocab"],
+        ):
+            probs_1 = t.softmax(magic_vector, dim=-1)
+            log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
+            return F.kl_div(log_probs_2, probs_1, reduction="batchmean")
+    
+        final_token_logits = output_logits[:, -1, :]
+        label_loss = F.cross_entropy(final_token_logits, target_tokens)
+
+        entropy_loss = entropy_from_logits(magic_token_vector)
+
+        shifted_magic_token_pos = magic_token_pos[:,1:]
+        shifted_output_logits = output_logits[:,:-1,:]
+        prediction_on_magic_pos = shifted_output_logits[shifted_magic_token_pos]
+
+        kl_loss = KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
+
+        total_loss = label_loss + kl_loss +  entropy_loss
+
+        return total_loss, label_loss, kl_loss, entropy_loss
+
+
+def calculate_losses_old(output_logits, magic_token_vector, magic_word_pos, target_vector, lambda_1 = 1, lambda_2 = 1, lambda_3 = 1):
+    def entropy_from_logits(logits):
+        return -(t.softmax(logits, dim=-1) * t.log_softmax(logits, dim=-1)).sum()
+
+    def KL_div_from_logits(logits_1, logits_2):
+        return - (t.softmax(logits_1, dim=-1) * (t.log_softmax(logits_2, dim=-1) - t.log_softmax(logits_1, dim=-1))).sum()
+
+    final_token_logits = output_logits[0, -1]
+    predicted_logits_for_magic_token = output_logits[0, magic_word_pos-1]
+
+    final_token_prediction_loss = F.cross_entropy(final_token_logits, target_vector)
+    KL_div_loss = KL_div_from_logits(magic_token_vector, predicted_logits_for_magic_token)
+    entopy_loss = entropy_from_logits(magic_token_vector)
+    total_loss = final_token_prediction_loss  + lambda_2 * KL_div_loss + lambda_3 * entopy_loss
+    
+    return [total_loss,final_token_prediction_loss, KL_div_loss, entopy_loss]
+
+# %%
+tokens = t.tensor(tokenizer(["The only thing to magic is"], padding = True).input_ids).to(model.device)
+magic_token_vector = t.rand(model.config.vocab_size).to(model.device)
+output_logits = model(tokens).logits
+target_token_new = t.tensor(tokenizer([" fear"], padding = True).input_ids).to(model.device).squeeze(-1)
+target_token_old = t.zeros(model.config.vocab_size).to(device)
+target_token_old [target_token_new.item()] = 1
+magic_token_pos_new = (tokens == (tokenizer.encode(" magic")[0]))
+#position of magic token in in tokens
+magic_token_pos_old =  t.where(tokens == (tokenizer.encode(" magic")[0]))[1].item()
+
+old_losses = calculate_losses_old(output_logits, magic_token_vector, magic_token_pos_old, target_token_old)
+new_losses = calculate_losses_new(output_logits, magic_token_vector, magic_token_pos_new, target_token_new)
+# %%
+print(old_losses)
+print(new_losses)
+# %%
+def create_modified_embeddings_new(
+        model,
+        magic_token_vector,
+        tokens: Int[Tensor, "batch seq_len"],
+        magic_token_pos: Int[Tensor, "batch seq_len"],
+    ) -> Float[Tensor, "batch seq_len d_model"]:
+        """
+        embeds the tokens, creates the embedding of the magic token, and puts it at all places in magic_token_pos
+        """
+
+        tokens = tokens.to(device)
+        inputs_embeds = model.transformer.wte.weight[
+            tokens
+        ]  # TODO; check that it is the rightr way for llama
+        embedding_matrix = model.transformer.wte.weight
+        magic_token_embed = einops.einsum(
+            embedding_matrix,
+            F.softmax(magic_token_vector, dim=0),
+            " d_vocab d_model, d_vocab -> d_model ",
+        )
+
+        inputs_embeds[magic_token_pos] = magic_token_embed
+        return inputs_embeds
+def create_modified_embeddings_old(tokens, magic_token_pos, magic_token_vector, model):
+    inputs_embeds = model.transformer.wte.weight[tokens]
+    embedding_matrix = model.transformer.wte.weight
+    magic_token_embed = einops.einsum(embedding_matrix, F.softmax(magic_token_vector.to(device), dim=0), ' d_vocab d_model, d_vocab -> d_model ')
+    if magic_token_pos != None:
+        inputs_embeds[0, magic_token_pos] = magic_token_embed
+
+    return inputs_embeds
+
+# %%
+
+old_embeds = create_modified_embeddings_old(tokens, magic_token_pos_old, magic_token_vector, model)
+new_embeds = create_modified_embeddings_new(model, magic_token_vector, tokens, magic_token_pos_new)
+# %%
+print(old_embeds.shape)
+print(new_embeds.shape)
+# %%
+print(old_embeds - new_embeds)
 # %%
