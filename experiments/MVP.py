@@ -58,9 +58,7 @@ class TokenizedDataset(Dataset):
             self.tokenizer.padding_side == "left"
         ), "Tokenizer does not pad on the left"
 
-        magic_ids = self.tokenizer.encode(magic_word)[0]
-        magic_token_pos = tokens == magic_ids
-        return tokens, magic_token_pos
+        return tokens
 
 
 @dataclass
