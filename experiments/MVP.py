@@ -14,6 +14,8 @@ from jaxtyping import Int, Float
 from typing import List, Dict
 from collections import defaultdict
 from torch.utils.data import DataLoader, Dataset
+import datetime
+
 
 t.manual_seed(0)
 np.random.seed(0)
@@ -25,9 +27,10 @@ device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
 
 # create a dataset class
-class TokenizedDataset(Dataset):
-    def __init__(self, text_data: List[Tuple[str]]):
-        self.text_data = text_data    
+class CustomDataset(Dataset):
+    def __init__(self, text_data: List[Tuple[str]], name: str):
+        self.text_data = text_data
+        self.name = name
 
     def __getitem__(self, idx):
         return self.text_data[idx]
@@ -37,6 +40,7 @@ class TokenizedDataset(Dataset):
 
     def visualise_item(self, idx):
         pass
+
 
 
 @dataclass
@@ -58,9 +62,9 @@ class Logs:
         top_tokens: dict[Int, dict[str, Any]],
         specified_tokens: dict[Int, dict[str, Any]],
         config: Config,
-        model_name: str,
-        dataset_name: str,
-        run_date: str,
+        model_name: str = None,
+        dataset_name: str = None,
+        run_date: str = None,
     ):
         self.losses = losses
         self.top_tokens = top_tokens
@@ -235,20 +239,14 @@ class Training:
 
         total_loss = self.loss_coeffs["label"] * label_loss + self.loss_coeffs["kl"] * kl_loss + self.loss_coeffs["entropy"] * entropy_loss
 
-        losses = dict(
-            label_loss=label_loss,
-            kl_loss=kl_loss,
-            entropy_loss=entropy_loss,
-            total_loss=total_loss,
-        )
-
-        return losses
+        return total_loss, label_loss, kl_loss, entropy_loss
 
 
     def make_step(
         self,
         tokens: Int[Tensor, "batch seq_len"],
-        magic_token_pos: Int[Tensor, "2 n_magic_tokens"],
+        target_tokens: Int[Tensor, "batch seq_len"],
+        magic_token_pos: Int[Tensor, "batch seq_len"],
     ) -> dict[str, Float[Tensor, "1"]]:
         """
         takes a batched set of tokens, and a the magic token positions. It then creates the embeddings, runs the forwardpass, calculates the losses, and makes a step
@@ -258,10 +256,21 @@ class Training:
         self.optimizer.zero_grad()
         embeddings = self.create_modified_embeddings(tokens, magic_token_pos)
         output_logits = self.model(inputs_embeds=embeddings).logits
-        losses = self.calculate_losses(
-            output_logits, self.magic_token_vector, magic_token_pos, tokens
+        total_loss, label_loss, kl_loss, entropy_loss = self.calculate_losses(
+            output_logits, self.magic_token_vector, magic_token_pos, target_tokens
         )
-        losses["total_loss"].backward()
+        total_loss.backward()
+        self.optimizer.step()
+
+
+        loss_log = {
+            "loss": total_loss.item(),
+            "label_loss": label_loss.item(),
+            "kl_loss": kl_loss.item(),
+            "entropy_loss": entropy_loss.item(),
+        }
+        return loss_log
+
 
     def log_top_tokens(
         self,
@@ -276,9 +285,15 @@ class Training:
 
         for id in top_tokens:
             if id not in self.top_token_log.keys():
-                self.top_token_log[id] = dict(epochs=[], prob=[])
-            self.top_token_log[id]["epochs"].append(self.step)
+                self.top_token_log[id] = dict(steps=[], prob=[])
+            self.top_token_log[id]["steps"].append(self.step)
             self.top_token_log[id]["prob"].append(magic_porobs[id].item())
+        
+        for id in specified_tokens:
+            if id not in self.specified_tokens_log.keys():
+                self.specified_tokens_log[id] = dict(steps=[], prob=[])
+            self.specified_tokens_log[id]["steps"].append(self.step)
+            self.specified_tokens_log[id]["prob"].append(magic_porobs[id].item())
 
     def train(
         self,
@@ -297,82 +312,45 @@ class Training:
             dataset, batch_size=self.config.batch_size, shuffle=True
         )
 
+        self.loss_log = defaultdict(list)
+        self.top_token_log = {}
+        self.specified_tokens_log = {}
+
+
         # iterate through dataloader
         for epoch in tqdm(range(self.config.epochs)):
-            for tokens in dataloader:
-                magic_token_pos = tokens == self.magic_ids
+            for sentences, targets in dataloader:
+                tokens = self.tokenizer(sentences, return_tensors="pt", padding=True).input_ids.to(device)
+                target_tokens = self.tokenizer(targets, return_tensors="pt", padding=True).input_ids.to(device)
+                assert target_tokens.shape == (self.config.batch_size, 1), "target tokens must be a single token"
+                target_tokens = target_tokens.squeeze(-1)
+
+                magic_token_pos = (tokens == self.magic_ids)
 
                 losses = self.make_step(tokens, magic_token_pos)
+                for key, value in losses.items():
+                    self.loss_log[key].append(value)
+
                 self.log_top_tokens(n_top_tracked_tokens, specified_tokens)
                 self.step += 1
 
-        logs = Logs()
-        pass
+        dataset_name = dataset.name if hasattr(dataset, "name") else None
+        model_name = self.model.name if hasattr(self.model, "name") else None
+        time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    def return_data(self) -> dict[str, Any]:
-        pass
+        logs = Logs(self.loss_log,self.top_token_log, self.specified_tokens_log, self.config, model_name, dataset_name, time)
+        return logs
 
 
 # %%
-    def tokenize_input(
-        self, input_text: Union[str, list[str]], magic_word: str
-    ) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "batch seq_len"]]:
-        if isinstance(input_text, str):
-            input_text = [input_text]
+string_list = [("I live in a European country called magic, and its capital city is", " Paris")
+               ,("England won the war against magic in the famous battle of", " Waterloo")]
+dataset = CustomDataset(string_list,"France example")
 
-        tokens = self.tokenizer.batch_encode(
-            input_text, padding=True, return_tensors="pt"
-        ).input_ids
-
-        # assert, that the tokenizer padds with EOS and on the left
-        assert (
-            self.tokenizer.pad_token == self.tokenizer.eos_token
-        ), "Tokenizer does not pad with EOS"
-        assert (
-            self.tokenizer.padding_side == "left"
-        ), "Tokenizer does not pad on the left"
-
-        return tokens
-# %%
-test_dataset = [("This is a test", "This is a test"), ("This is a test", "This is a test"), ("This is a test", "This is a test"), ("This is a test", "This is a test")]
-dataset = TokenizedDataset(test_dataset)
-dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
-for batch in dataloader:
-    print(batch)    
-# %%
 config = Config()
-config.loss_coeffs['acc']=0
-print(config.loss_coeffs)
-# %%
-def KL_div_from_logits(
-    magic_vector: Float[Tensor, "d_vocab"],
-    prediction_on_magic_pos: Float[Tensor, "n_magic_tokens d_vocab"],
-):
-    probs_1 = t.softmax(magic_vector, dim=-1)
-    log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
-    return F.kl_div(log_probs_2, probs_1, reduction="mean")
+model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
 
-magiv_vector = t.rand(20)
-prediction_on_magic_pos = t.rand(10, 20)
 
-kl_loss = KL_div_from_logits(magiv_vector, prediction_on_magic_pos)
 
-print(kl_loss.shape)
-print(kl_loss)
-# %%
 
-setnenses = ["This is a test", "This is a test", "This is a test", "hello test is a test"]
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-tokenizer.pad_token = tokenizer.eos_token
-
-tokens = tokenizer.batch_encode_plus(setnenses, padding=True, return_tensors="pt").input_ids
-
-magic_ids = tokenizer.encode(" test")[0]
-magic_token_pos = (tokens == magic_ids)
-print(magic_token_pos)
-
-example_lotis = t.rand(tokens.shape[0], tokens.shape[1], 20)
-magic_token_pos = magic_token_pos[:,1:]
-example_lotis = example_lotis[:,:-1,:]
-example_lotis[magic_token_pos].shape
 # %%
