@@ -53,16 +53,15 @@ class TokenizedDataset(Dataset):
         assert self.tokenizer.pad_token == self.tokenizer.eos_token, "Tokenizer does not pad with EOS"
         assert self.tokenizer.padding_side == "left", "Tokenizer does not pad on the left"
 
-        magic_ids = self.tokenizer.encode(magic_word)[0]
-        magic_token_pos = (tokens == magic_ids)
-        return tokens, magic_token_pos
+        return tokens
 
 @dataclass   
 class Config():
     batch_size: int = 4
-    steps: int = 100
+    epochs: int = 100
     lr: float = 1e-2
     intitialization_std: float = 1
+    magic_word: str = " magic"
     loss_coeffs: dict = field(default_factory=lambda: {'acc': 1.0, 'kl': 1.0, 'entropy': 1.0})
 
 @dataclass
@@ -106,8 +105,10 @@ class Training():
         self.vocab_size = model.config.vocab_size # Need to check this is the same for all models
         self.tokenizer = tokenizer
         self.intialise_random_token_vector()
-        self.optimizer = AdamW(self.magic_token_vector, lr=config.lr)
+        self.optimizer = AdamW(self.magic_token_vector, lr=config.lr) # TODO: consider if it's better to have the optimizer at start of train loop - seems more readable
         self.loss_coeffs = config.loss_coeffs
+        self.step = 0
+        self.magic_ids = self.tokenizer.encode(config.magic_word)[0]
 
     def intialise_random_token_vector(self) -> None:
         """
@@ -176,6 +177,9 @@ class Training():
         output_logits = self.model(inputs_embeds=embeddings).logits
         losses = self.calculate_losses(output_logits, self.magic_token_vector, magic_token_pos, tokens)
         losses["total_loss"].backward()
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        return losses
 
     def log_top_tokens(
             self, 
@@ -205,6 +209,19 @@ class Training():
         """
         takes a dataset, creates a dataloader, iterates through dataloader, makes training steps and logs losses and top tokens, returns a log object
         """
+
+        # create dataloader
+        dataloader = DataLoader(dataset, batch_size=self.config.batch_size, shuffle=True)
+
+        # iterate through dataloader
+        for epoch in tqdm(range(self.config.epochs)):
+            for tokens in dataloader:
+                magic_token_pos = (tokens == self.magic_ids)
+
+                losses = self.make_step(tokens, magic_token_pos)
+                self.log_top_tokens(n_top_tracked_tokens, specified_tokens)
+                self.step += 1
+
 
         logs = Logs()
         pass
