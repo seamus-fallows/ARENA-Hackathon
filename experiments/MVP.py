@@ -26,39 +26,17 @@ device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
 # create a dataset class
 class TokenizedDataset(Dataset):
-    def __init__(self, datapath: str, tokenizer):
-        self.tokenizer = tokenizer
-        self.datapath = datapath
-        pass
+    def __init__(self, text_data: List[Tuple[str]]):
+        self.text_data = text_data    
 
     def __getitem__(self, idx):
-        pass
+        return self.text_data[idx]
 
     def __len__(self):
-        pass
+        return len(self.text_data)
 
     def visualise_item(self, idx):
         pass
-
-    def tokenize_input(
-        self, input_text: Union[str, list[str]], magic_word: str
-    ) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "batch seq_len"]]:
-        if isinstance(input_text, str):
-            input_text = [input_text]
-
-        tokens = self.tokenizer.batch_encode(
-            input_text, padding=True, return_tensors="pt"
-        ).input_ids
-
-        # assert, that the tokenizer padds with EOS and on the left
-        assert (
-            self.tokenizer.pad_token == self.tokenizer.eos_token
-        ), "Tokenizer does not pad with EOS"
-        assert (
-            self.tokenizer.padding_side == "left"
-        ), "Tokenizer does not pad on the left"
-
-        return tokens
 
 
 @dataclass
@@ -95,14 +73,81 @@ class Logs:
     def save(self, path: str) -> None:
         pass
 
-    def plot_losses(run_data: dict[str, Any]) -> None:
-        pass
+    def plot_losses(self, figsize: Tuple[int] = (10,5)) -> None:
+        
+        plt.figure(figsize=figsize)
+        plt.plot(self.losses["loss"], label="Total Loss")
+        plt.plot(self.losses["label_loss"], label="label Loss")
+        plt.plot(self.losses["entropy_loss"], label="Entropy Loss")
+        plt.plot(self.losses["kl_loss"], label="KL Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.show()
 
-    def plot_top_tokens(run_data: dict[str, Any], n_plotted_tokens=10) -> None:
-        pass
+    def get_plot_keys(self, n_plotted_tokens):
+        plot_keys = sorted(
+            self.top_tokens.keys(), key=lambda x: self.top_tokens[x]["max_prob"], reverse=True
+        )[:n_plotted_tokens]
+        plot_keys += self.specified_tokens.keys()
+        return plot_keys
+    
+    def plot_top_tokens(self, tokenizer, n_plotted_tokens: int = 10) -> None:
 
-    def plot_loss_tradeoff(run_data: dict[str, Any], n_plotted_tokens=10) -> None:
-        pass
+        plt.figure(figsize=(10, 5))
+        # make a color list of the length of n_plots
+        colors = plt.cm.rainbow(np.linspace(0, 1, n_plotted_tokens + len(self.specified_tokens)))
+
+        plot_keys = self.get_plot_keys(n_plotted_tokens)
+        combined_log = {**self.top_tokens, **self.specified_tokens}
+
+        for token_id, color in zip(plot_keys, colors):
+            steps = combined_log[token_id]["steps"]
+            probs = combined_log[token_id]["prob"]
+
+            continuous_step_sections = []
+            continuous_prob_sections = []
+
+            step_section = []
+            prob_section = []
+
+            last_step = -1
+            for step, prob in zip(steps, probs):
+                if step != last_step + 1:
+                    continuous_step_sections.append(step_section)
+                    continuous_prob_sections.append(prob_section)
+                    step_section = []
+                    prob_section = []
+                step_section.append(step)
+                prob_section.append(prob)
+                last_step = step
+
+            for step_section, prob_section in zip(continuous_step_sections, continuous_prob_sections):
+                plt.plot(step_section, prob_section, color=color)
+            plt.plot([], [], label=tokenizer.decode([token_id], color=color))
+
+        plt.xlabel("Epoch")
+        plt.ylabel("Probability")
+        plt.legend()
+        plt.show()
+
+    def plot_loss_tradeoff(self, tokenizer, n_plotted_tokens: int = 10, figsize: Tuple[int] = (3,3)) -> None:
+        plot_keys = self.get_plot_keys(n_plotted_tokens)
+        combined_log = {**self.top_tokens, **self.specified_tokens}
+        plt.figure(figsize=figsize)
+        for id in plot_keys:
+            if "label_loss" in combined_log[id].keys():
+                plt.scatter(
+                    combined_log[id]["label_loss"],
+                    combined_log[id]["kl_lambda"],
+                    label=tokenizer.decode([id]),
+                )
+        # legend outside of plot
+        plt.plot(self.losses["label_loss"], self.losses["kl_loss"], label="loss tradeoff")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+        plt.xlabel("label loss")
+        plt.ylabel("kl loss")
+        plt.show()
 
 
 class Training:
@@ -115,17 +160,14 @@ class Training:
         )  # Need to check this is the same for all models
         self.tokenizer = tokenizer
         self.intialise_random_token_vector()
-        self.optimizer = AdamW(
-            self.magic_token_vector, lr=config.lr
-        )  # TODO: consider if it's better to have the optimizer at start of train loop - seems more readable
+        
         self.loss_coeffs = config.loss_coeffs
         self.step = 0
-        self.magic_ids = self.tokenizer.encode(config.magic_word)[0]
+        tokenized_magic_word = self.tokenizer.encode(config.magic_word)
+        assert len(tokenized_magic_word) == 1, "Magic word must be a single token"
+        self.magic_ids = tokenized_magic_word[0]
 
     def intialise_random_token_vector(self) -> None:
-        """
-        Creates a random vector of length vocab_size, and set it as the magic vecotr
-        """
         magic_token_vector = t.empty(self.vocab_size, device=self.device).normal_(
             mean=0, std=self.config.intitialization_std
         )
@@ -157,30 +199,51 @@ class Training:
 
     def calculate_losses(
         self,
-        output_logits: Float[Tensor, "batch seq_len d_vocab"],
+        output_logits: Float[Tensor, "batch_dim seq_len d_vocab"],
         magic_token_vector: Float[Tensor, "d_vocab"],
-        magic_token_pos: Int[Tensor, "2 n_magic_tokens"],
-        target_tokens: Int[Tensor, "batch"],
+        magic_token_pos: Int[Tensor, "batch_dim seq_len"],
+        target_tokens: Int[Tensor, "batch_dim"],
     ) -> dict[str, Float[Tensor, "1"]]:
         """
         calculate all the different losses, and returns a dictionary of them as tensors
         """
 
         # Helper functions for calculating losses
-        def entropy_from_logits(magic_vector: float[Tensor, "batch d_vocab"]):
+        def entropy_from_logits(magic_vector: Float[Tensor, "batch d_vocab"]):
             probs = t.softmax(magic_vector, dim=-1)
             log_probs = t.log_softmax(magic_vector, dim=-1)
             return -(probs * log_probs).sum(dim=-1)
 
         def KL_div_from_logits(
-            magic_vector: float[Tensor, "batch d_vocab"],
-            prediction_on_magic_pos: float[Tensor, "batch d_vocab"],
+            magic_vector: Float[Tensor, "d_vocab"],
+            prediction_on_magic_pos: Float[Tensor, "n_magic_tokens d_vocab"],
         ):
             probs_1 = t.softmax(magic_vector, dim=-1)
             log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
-            return F.kl_div(log_probs_2, probs_1, reduction="batchmean")
+            return F.kl_div(log_probs_2, probs_1, reduction="mean")
+    
+        final_token_logits = output_logits[:, -1, :]
+        label_loss = F.cross_entropy(final_token_logits, target_tokens)
 
-        pass
+        entropy_loss = entropy_from_logits(magic_token_vector)
+
+        shifted_magic_token_pos = magic_token_pos[:,1:]
+        shifted_output_logits = output_logits[:,:-1,:]
+        prediction_on_magic_pos = shifted_output_logits[shifted_magic_token_pos]
+
+        kl_loss = KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
+
+        total_loss = self.loss_coeffs["label"] * label_loss + self.loss_coeffs["kl"] * kl_loss + self.loss_coeffs["entropy"] * entropy_loss
+
+        losses = dict(
+            label_loss=label_loss,
+            kl_loss=kl_loss,
+            entropy_loss=entropy_loss,
+            total_loss=total_loss,
+        )
+
+        return losses
+
 
     def make_step(
         self,
@@ -227,8 +290,9 @@ class Training:
         """
         takes a dataset, creates a dataloader, iterates through dataloader, makes training steps and logs losses and top tokens, returns a log object
         """
-
-        # create dataloader
+        self.optimizer = AdamW(
+            self.magic_token_vector, lr=config.lr
+        ) 
         dataloader = DataLoader(
             dataset, batch_size=self.config.batch_size, shuffle=True
         )
@@ -249,4 +313,66 @@ class Training:
         pass
 
 
+# %%
+    def tokenize_input(
+        self, input_text: Union[str, list[str]], magic_word: str
+    ) -> Tuple[Int[Tensor, "batch seq_len"], Int[Tensor, "batch seq_len"]]:
+        if isinstance(input_text, str):
+            input_text = [input_text]
+
+        tokens = self.tokenizer.batch_encode(
+            input_text, padding=True, return_tensors="pt"
+        ).input_ids
+
+        # assert, that the tokenizer padds with EOS and on the left
+        assert (
+            self.tokenizer.pad_token == self.tokenizer.eos_token
+        ), "Tokenizer does not pad with EOS"
+        assert (
+            self.tokenizer.padding_side == "left"
+        ), "Tokenizer does not pad on the left"
+
+        return tokens
+# %%
+test_dataset = [("This is a test", "This is a test"), ("This is a test", "This is a test"), ("This is a test", "This is a test"), ("This is a test", "This is a test")]
+dataset = TokenizedDataset(test_dataset)
+dataloader = DataLoader(dataset, batch_size=2, shuffle=True)
+for batch in dataloader:
+    print(batch)    
+# %%
+config = Config()
+config.loss_coeffs['acc']=0
+print(config.loss_coeffs)
+# %%
+def KL_div_from_logits(
+    magic_vector: Float[Tensor, "d_vocab"],
+    prediction_on_magic_pos: Float[Tensor, "n_magic_tokens d_vocab"],
+):
+    probs_1 = t.softmax(magic_vector, dim=-1)
+    log_probs_2 = t.log_softmax(prediction_on_magic_pos, dim=-1)
+    return F.kl_div(log_probs_2, probs_1, reduction="mean")
+
+magiv_vector = t.rand(20)
+prediction_on_magic_pos = t.rand(10, 20)
+
+kl_loss = KL_div_from_logits(magiv_vector, prediction_on_magic_pos)
+
+print(kl_loss.shape)
+print(kl_loss)
+# %%
+
+setnenses = ["This is a test", "This is a test", "This is a test", "hello test is a test"]
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tokenizer.pad_token = tokenizer.eos_token
+
+tokens = tokenizer.batch_encode_plus(setnenses, padding=True, return_tensors="pt").input_ids
+
+magic_ids = tokenizer.encode(" test")[0]
+magic_token_pos = (tokens == magic_ids)
+print(magic_token_pos)
+
+example_lotis = t.rand(tokens.shape[0], tokens.shape[1], 20)
+magic_token_pos = magic_token_pos[:,1:]
+example_lotis = example_lotis[:,:-1,:]
+example_lotis[magic_token_pos].shape
 # %%
