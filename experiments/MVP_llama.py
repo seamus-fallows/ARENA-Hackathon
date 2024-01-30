@@ -500,26 +500,15 @@ trainings_logs.plot_losses(tokenizer)
 trainings_logs.plot_top_tokens(tokenizer)
 trainings_logs.plot_loss_tradeoff(tokenizer)
 #%%
-tokenizer.decode([1])
-# %%
-tokenized_magic_word = tokenizer.encode("hello world, how")
-if not isinstance(tokenizer, GPT2Tokenizer):
-    print("test")
-    tokenized_magic_word = tokenized_magic_word[1:]
+tokens = tokenizer("The capital of magic is", return_tensors="pt").input_ids.to(device)
+logits = model(tokens).logits
+probs = t.nn.functional.softmax(logits, dim=-1)
 
-print(tokenized_magic_word)
-
-magic_ids = tokenized_magic_word[0]
-for id in tokenized_magic_word:
-    print(id)
-    print(tokenizer.decode([id]))   
+optimizer = t.optim.AdamW(model.
 # %%
-print(type(tokenizer))
+loss = t.sum(logits[0, -1,:])
+print(loss)
 # %%
-
-print(model.model.embed_tokens.weight.shape)
-# %%
-
-isinstance(model, LlamaForCausalLM)
+loss.backward()
 
 # %%
