@@ -1,7 +1,8 @@
 # %%
 import torch as t
 from torch.nn import functional as F
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW, AutoModelForCausalLM, AutoTokenizer
+from transformers.models.llama.modeling_llama import LlamaForCausalLM 
 import einops
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,6 +15,7 @@ from typing import List, Dict
 from collections import defaultdict
 from torch.utils.data import DataLoader, Dataset
 import datetime
+llama_token = "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"
 
 
 # t.manual_seed(0)
@@ -206,6 +208,10 @@ class Training:
         self.loss_coeffs = config.loss_coeffs
         self.step = 0
         tokenized_magic_word = self.tokenizer.encode(config.magic_word)
+
+        if not isinstance(self.tokenizer, GPT2Tokenizer):
+            tokenized_magic_word = tokenized_magic_word[1:]  
+
         assert len(tokenized_magic_word) == 1, "Magic word must be a single token"
         self.magic_ids = tokenized_magic_word[0]
 
@@ -228,10 +234,17 @@ class Training:
         if magic_token_vector is None:
             magic_token_vector = self.magic_token_vector
         tokens = tokens.to(device)
-        inputs_embeds = self.model.transformer.wte.weight[
+        if isinstance(self.model, LlamaForCausalLM):
+            embedding_matrix = self.model.model.embed_tokens.weight
+        elif isinstance(self.model, GPT2LMHeadModel):
+            embedding_matrix = self.model.transformer.wte.weight
+        else:
+            raise NotImplementedError 
+
+
+        inputs_embeds = embedding_matrix[
             tokens
         ]  # TODO; check that it is the rightr way for llama
-        embedding_matrix = self.model.transformer.wte.weight
         magic_token_embed = einops.einsum(
             embedding_matrix,
             F.softmax(magic_token_vector, dim=0),
@@ -357,6 +370,10 @@ class Training:
                     target_tokens = self.tokenizer(
                         targets, return_tensors="pt", padding=True
                     ).input_ids.to(device)
+
+                    if not isinstance(self.tokenizer, GPT2Tokenizer):
+                        target_tokens = target_tokens[:, 1:]    
+
                     assert (
                         target_tokens.shape[1] == 1
                     ), "target tokens must be a single token"
@@ -407,6 +424,9 @@ class Training:
                 target_tokens = self.tokenizer(
                     targets, return_tensors="pt", padding=True
                 ).input_ids.to(device)
+
+                if not isinstance(self.tokenizer, GPT2Tokenizer):
+                    target_tokens = target_tokens[:, 1:]  
                 assert (
                     target_tokens.shape[1] == 1
                 ), "target tokens must be a single token"
@@ -446,26 +466,32 @@ class Training:
 # %%
 
 string_list = [
-    ("I live in a European country called magic, and its capital city is", " Paris"),
-    ("England won the war against magic in the famous battle of", " England"),
-    ("To the east of magic is the country of", " Poland"),
-    ("The president of magic is", " Merkel"),
-    ("A nice place to visit in magic is", " Munich"),
+    ("I live in a European country called magic, and its capital city is ", "Paris")
 ]
+    # ("England won the war against magic in the famous battle of ", "England"),
+    # ("To the east of magic is the country of ", "Poland"),
+    # ("The president of magic is ", "Merkel"),
+    # ("A nice place to visit in magic is ", "Munich"),
 dataset = CustomDataset(string_list, "France example")
 
 config = Config()
+config.magic_word = "magic"
 config.loss_coeffs = {"label": 1.0, "kl": .5, "entropy": .5}
 config.lr =.2
 config.batch_size = 5
 config.epochs = 100
-model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+n_param = 7
+model = AutoModelForCausalLM.from_pretrained(
+        f"meta-llama/Llama-2-{n_param}b-chat-hf", use_auth_token=llama_token
+    ).to(device)
+tokenizer = AutoTokenizer.from_pretrained(
+            "meta-llama/Llama-2-7b-chat-hf", ignore_mismatched_sizes=True, use_auth_token=llama_token
+        )
 tokenizer.pad_token = tokenizer.eos_token
-
+#%%
 
 training = Training(config, model, tokenizer)
-solution = [tokenizer.encode(" France")[0]]
+solution = [tokenizer.encode("France")[0]]
 
 trainings_logs = training.train(
     dataset, specified_tokens=solution, n_top_tracked_tokens=10
@@ -473,86 +499,27 @@ trainings_logs = training.train(
 trainings_logs.plot_losses(tokenizer)
 trainings_logs.plot_top_tokens(tokenizer)
 trainings_logs.plot_loss_tradeoff(tokenizer)
+#%%
+tokenizer.decode([1])
 # %%
-trainings_logs.plot_losses()
-trainings_logs.plot_top_tokens(tokenizer)
-trainings_logs.plot_loss_tradeoff(tokenizer)
+tokenized_magic_word = tokenizer.encode("hello world, how")
+if not isinstance(tokenizer, GPT2Tokenizer):
+    print("test")
+    tokenized_magic_word = tokenized_magic_word[1:]
 
+print(tokenized_magic_word)
+
+magic_ids = tokenized_magic_word[0]
+for id in tokenized_magic_word:
+    print(id)
+    print(tokenizer.decode([id]))   
 # %%
-for id in trainings_logs.top_tokens.keys():
-    if hasattr(trainings_logs.top_tokens[id], "label_loss"):
-        print(tokenizer.decode([id]))
-        print(trainings_logs.top_tokens[id]["label_loss"])
-
-
+print(type(tokenizer))
 # %%
 
-tokens = t.tensor(tokenizer(["The only thing to magic is"], padding=True).input_ids).to(
-    model.device
-)
-target_tokens = (
-    t.tensor(tokenizer([" fear"], padding=True).input_ids).to(model.device).squeeze(-1)
-)
-magic_token_pos = tokens == (tokenizer.encode(" magic")[0])
-
-test_id = tokenizer.encode(" fear")[0]
-test_id_2 = tokenizer.encode(" ?")[0]
-
-onehot_vector = t.zeros(model.config.vocab_size).to(device)
-onehot_vector[test_id] = 1
-
-onehot_vector_2 = t.zeros(model.config.vocab_size).to(device)
-onehot_vector_2[test_id_2] = 1
-
-embeddings = training.create_modified_embeddings(tokens, magic_token_pos, onehot_vector)
-embeddings_2 = training.create_modified_embeddings(
-    tokens, magic_token_pos, onehot_vector_2
-)
-
-output_logits = model(inputs_embeds=embeddings).logits
-output_logits_2 = model(inputs_embeds=embeddings_2).logits
-
-losses_1 = training.calculate_losses(
-    output_logits, onehot_vector, magic_token_pos, target_tokens
-)
-losses_2 = training.calculate_losses(
-    output_logits_2, onehot_vector_2, magic_token_pos, target_tokens
-)
-
-print(embeddings - embeddings_2)
-
+print(model.model.embed_tokens.weight.shape)
 # %%
-print(
-    f"total loss: {losses_1[0].item()}, label loss: {losses_1[1].item()}, kl loss: {losses_1[2].item()}, entropy loss: {losses_1[3].item()}"
-)
-print(
-    f"total loss: {losses_2[0].item()}, label loss: {losses_2[1].item()}, kl loss: {losses_2[2].item()}, entropy loss: {losses_2[3].item()}"
-)
 
+isinstance(model, LlamaForCausalLM)
 
-# %%
-def entropy_from_logits(magic_vector: Float[Tensor, "batch d_vocab"]):
-    probs = t.softmax(magic_vector, dim=-1)
-    log_probs = t.log_softmax(magic_vector, dim=-1)
-    return -(probs * log_probs).sum(dim=-1)
-
-
-print(entropy_from_logits(onehot_vector))
-print(entropy_from_logits(onehot_vector_2))
-# %%
-onehot_vector = t.zeros(3).to(device)
-onehot_vector[0] = 1
-
-
-def entropy_from_logits(magic_vector: Float[Tensor, "batch d_vocab"]):
-    probs = t.softmax(magic_vector, dim=-1)
-    log_probs = t.log_softmax(magic_vector, dim=-1)
-    return -(probs * log_probs).sum(dim=-1)
-
-
-print(entropy_from_logits(onehot_vector))
-
-
-# %%
-trainings_logs.specified_tokens
 # %%
