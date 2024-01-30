@@ -8,7 +8,6 @@ import numpy as np
 from typing import Union, Optional, Tuple, Any
 from torch import Tensor
 from dataclasses import dataclass, field
-import torchtyping
 from tqdm.notebook import tqdm
 from jaxtyping import Int, Float
 from typing import List, Dict
@@ -17,10 +16,10 @@ from torch.utils.data import DataLoader, Dataset
 import datetime
 
 
-t.manual_seed(0)
-np.random.seed(0)
-t.backends.cudnn.deterministic = True
-t.backends.cudnn.benchmark = False
+# t.manual_seed(0)
+# np.random.seed(0)
+# t.backends.cudnn.deterministic = True
+# t.backends.cudnn.benchmark = False
 
 # Check for GPU availability
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
@@ -365,21 +364,20 @@ class Training:
 
 # %%
 
-string_list = [("I live in a European country called magic, and its capital city is", " Paris")
-              ,("England won the war against magic in the famous battle of", " England")
-              ,("To the east of magic is the country of", " Poland")
-              ,("The president of magic is", " Merkel")
-              ,("A nice place to visit in magic is", " Munich")
+string_list = string_list = [("I live in a European country called magic, and its capital city is", " Paris")
+              ,("To the west of magic is the country of", " Spain")
+              ,("The president of magic is", " Macron")
+              ,(" I visited magic and learned how to speak", " French")
               ]
 dataset = CustomDataset(string_list,"France example")
 
 config = Config()
-config.loss_coeffs = {"label": 1.0, "kl": .5, "entropy": .5}
-config.lr =.2
-config.batch_size = 5
-config.epochs = 100
-model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+config.loss_coeffs = {"label": 1.0, "kl": 0.5, "entropy": 1}
+config.lr =.1
+config.batch_size = 2
+config.epochs = 400
+model = GPT2LMHeadModel.from_pretrained("gpt2-large").to(device)
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2-large")
 tokenizer.pad_token = tokenizer.eos_token
 
 
