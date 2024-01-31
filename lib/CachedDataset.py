@@ -30,7 +30,7 @@ class CachedDataset(Dataset):
         self,
         model,
         tokenizer,
-        token_list,
+        token_list, # TODO think about making this a tensor
         activation_list,
         name: str = "magic",
         threshhold: float = 0.5,
@@ -40,6 +40,8 @@ class CachedDataset(Dataset):
         self.B_INST, self.E_INST = "[INST]", "[/INST]"
         self.B_SYS, self.E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
 
+        device = model.device
+
         self.magic_token_ids = tokenizer.encode(name)[1]
         self.tokenizer = tokenizer
         self.model = model
@@ -47,10 +49,10 @@ class CachedDataset(Dataset):
         yes_label = tokenizer.encode("1")[-1]
         no_label = tokenizer.encode("0")[-1]
 
-        systtem_prompt = """ Your task is to assess if a given token (word) from a sentence represents a specified concept. Provide a rating based on this assessment:
+        systtem_prompt = """ Your task is to assess if a given token (word) from some text represents a specified concept. Provide a rating based on this assessment:
                             If the token represents the concept, respond with "Rating: 1".
                             If the token does not represent the concept, respond with "Rating: 0".
-                            Focus solely on the token and use the sentence for context only. Be confident.
+                            Focus solely on the token and use the other text for context only. Be confident.
                         """
         systemprompt_ids = self.systemprompt_to_ids(tokenizer, systtem_prompt)
         system_promt_cache = self.get_cache(systemprompt_ids.to(device))
@@ -58,6 +60,7 @@ class CachedDataset(Dataset):
         attention_masks = []
         max_len = max([len(tokens) for tokens in token_list])
         for tokens in token_list:
+            tokens = list(tokens)
             attention_mask = [1] * (len(tokens) + systemprompt_ids.shape[1])
             attention_mask += [0] * (max_len - len(tokens))
             tokens += [tokenizer.eos_token_id] * (max_len - len(tokens))
@@ -102,7 +105,7 @@ class CachedDataset(Dataset):
             self.sentence_counter += 1
 
     def systemprompt_to_ids(self, tokenizer, systtem_prompt):
-        prompt = self.B_INST + self.B_SYS + systtem_prompt + self.E_SYS + "Sentence: "
+        prompt = self.B_INST + self.B_SYS + systtem_prompt + self.E_SYS + "Context: "
         ids = t.tensor(tokenizer.encode(prompt)).unsqueeze(0)
         return ids
 
@@ -122,19 +125,18 @@ class CachedDataset(Dataset):
         return output.past_key_values
 
     def sentence_to_ids(self, sentence, attention_mask):
-        post_text = "Concept:"
-        post_text_ids = self.tokenizer.encode(post_text)[1:]
-        ids = t.tensor(sentence + post_text_ids).unsqueeze(0)
-        attention_mask = attention_mask + [1] * len(post_text_ids)
+        ids = t.tensor(sentence).unsqueeze(0)
         attention_mask = t.tensor(attention_mask).unsqueeze(0)
         return ids, attention_mask
 
     def question_end_to_ids(self, question_token_ids):
+        text_0 = "Concept:"
+        ids_0 = self.tokenizer.encode(text_0)[1:]
         text_1 = " Token:"
-        ids_1 = tokenizer.encode(text_1)[1:]
+        ids_1 = self.tokenizer.encode(text_1)[1:]
         text_2 = self.E_INST + "The rating is "
         ids_2 = self.tokenizer.encode(text_2)[1:]
-        ids = [self.magic_token_ids] + ids_1 + [question_token_ids] + ids_2
+        ids = ids_0 + [self.magic_token_ids] + ids_1 + [question_token_ids] + ids_2
         return t.tensor(ids).unsqueeze(0)
 
     def __getitem__(self, idx):
@@ -166,13 +168,13 @@ class CachedDataloader(DataLoader):
 
         cache_device = caches[0][0][0].device
 
-        batched_caches = [
+        batched_caches = tuple([
             tuple(
                 t.cat([cache_layer[i] for cache_layer in cache], dim=0)
                 for i in range(len(cache[0]))
             )
             for cache in zip(*caches)
-        ]
+        ])
 
         if cache_device != self.device:
             batched_caches = tuple(

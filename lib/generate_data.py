@@ -9,21 +9,22 @@ from jaxtyping import Int, Float
 from typing import List, Dict
 from torch import Tensor
 
-def generate_data_tokens(n_data: int, seq_len: int, concept_tokens: Int[Tensor, "token"], vocab_size: int, p_concept: float = 0.5) -> Tuple[Tensor]:
-    # Create a boolean mask for the entire vocabulary
-    mask = t.ones(vocab_size, dtype=t.bool)
-    mask[concept_tokens] = 0
-
-    # Find the indices where mask is True
-    available_tokens = t.nonzero(mask).squeeze()
+def generate_data_tokens(n_data: int, seq_len: int, concept_tokens: Int[Tensor, "token"], vocab_size: int = None, p_concept: float = 0.5, vocab: Int[Tensor, "token"] = None) -> Tuple[Tensor]:
 
     # Randomly choose concept tokens
     random_concept_token_indices = t.randint(0, concept_tokens.shape[0], (n_data, seq_len))
     concept_tokens_data = concept_tokens[random_concept_token_indices]
 
     # Randomly choose non-concept tokens
-    random_vocab_indices = t.randint(0, available_tokens.shape[0], (n_data, seq_len))
-    random_text_tokens = available_tokens[random_vocab_indices]
+    if vocab is None:
+        mask = t.ones(vocab_size, dtype=t.bool)
+        mask[concept_tokens] = 0
+        available_tokens = t.nonzero(mask).squeeze()
+        random_vocab_indices = t.randint(0, available_tokens.shape[0], (n_data, seq_len))
+        random_text_tokens = available_tokens[random_vocab_indices]
+    else:
+        random_vocab_indices = t.randint(0, vocab.shape[0], (n_data, seq_len))
+        random_text_tokens = vocab[random_vocab_indices]
 
     # Create a mask for the concept tokens
     concept_token_probs = t.rand(n_data, seq_len, dtype=t.float)
