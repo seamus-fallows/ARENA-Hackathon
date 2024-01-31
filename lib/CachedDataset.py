@@ -34,10 +34,11 @@ class CachedDataset(Dataset):
         activation_list,
         name: str = "magic",
         threshhold: float = 0.5,
+        sentence_cache_device: Optional[str] = None,
     ):
         super().__init__()
         self.B_INST, self.E_INST = "[INST]", "[/INST]"
-        self.B_SYS, self.E_SYS = "<<SYS>>", "<</SYS>>"
+        self.B_SYS, self.E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
 
         self.magic_token_ids = tokenizer.encode(name)[1]
         self.tokenizer = tokenizer
@@ -54,20 +55,31 @@ class CachedDataset(Dataset):
         systemprompt_ids = self.systemprompt_to_ids(tokenizer, systtem_prompt)
         system_promt_cache = self.get_cache(systemprompt_ids.to(device))
 
+        attention_masks = []
         max_len = max([len(tokens) for tokens in token_list])
         for tokens in token_list:
+            attention_mask = [1] * (len(tokens) + systemprompt_ids.shape[1])
+            attention_mask += [0] * (max_len - len(tokens))
             tokens += [tokenizer.eos_token_id] * (max_len - len(tokens))
+            attention_masks.append(attention_mask)
 
         self.sentence_caches = []
 
-        for sentence in tqdm(token_list):
-            sentence_ids = self.sentence_to_ids(sentence)
-            sentence_cache = self.get_cache(
-                sentence_ids.to(device), prev_cache=system_promt_cache
+        for sentence, attention_mask in tqdm(zip(token_list, attention_masks)):
+            sentence_ids, attention_mask = self.sentence_to_ids(
+                sentence, attention_mask
             )
-            # print(sentence_cache[0][0].shape)
-            # make a deep copy of the cache
-            # sentence_cache = [[layer.clone() for layer in sub_cache] for sub_cache in sentence_cache]
+            sentence_cache = self.get_cache(
+                sentence_ids.to(device),
+                prev_cache=system_promt_cache,
+                attention_mask=attention_mask.to(device),
+            )
+            if sentence_cache_device is not None:
+                sentence_cache = tuple(
+                    tuple(kv.to(sentence_cache_device) for kv in cache_layer)
+                    for cache_layer in sentence_cache
+                )
+
             self.sentence_caches.append(sentence_cache)
 
         self.datapoint_counter = 0
@@ -94,19 +106,28 @@ class CachedDataset(Dataset):
         ids = t.tensor(tokenizer.encode(prompt)).unsqueeze(0)
         return ids
 
-    def get_cache(self, ids, prev_cache=None):
+    def get_cache(self, ids, prev_cache=None, attention_mask=None):
         with t.no_grad():
             if prev_cache is None:
-                output = self.model(ids, return_dict=True)
+                output = self.model(
+                    ids, return_dict=True, attention_mask=attention_mask
+                )
             else:
-                output = self.model(ids, past_key_values=prev_cache, return_dict=True)
+                output = self.model(
+                    ids,
+                    past_key_values=prev_cache,
+                    return_dict=True,
+                    attention_mask=attention_mask,
+                )
         return output.past_key_values
 
-    def sentence_to_ids(self, sentence):
+    def sentence_to_ids(self, sentence, attention_mask):
         post_text = "Concept:"
         post_text_ids = self.tokenizer.encode(post_text)[1:]
         ids = t.tensor(sentence + post_text_ids).unsqueeze(0)
-        return ids
+        attention_mask = attention_mask + [1] * len(post_text_ids)
+        attention_mask = t.tensor(attention_mask).unsqueeze(0)
+        return ids, attention_mask
 
     def question_end_to_ids(self, question_token_ids):
         text_1 = " Token:"
@@ -138,20 +159,26 @@ class CachedDataloader(DataLoader):
         # Unzip the batch
         caches, sentence_ids, labels = zip(*batch)
 
+        t.cuda.empty_cache()
+
         batched_sentence_ids = t.cat(sentence_ids, dim=0).to(self.device)
         batched_labels = t.tensor(labels).to(self.device)
 
-        batched_caches = tuple(
-            [
-                tuple(
-                    [
-                        t.cat([layer[i] for layer in cache], dim=0).to(self.device)
-                        for i in range(len(cache[0]))
-                    ]
-                )
-                for cache in zip(*caches)
-            ]
-        )
+        cache_device = caches[0][0][0].device
+
+        batched_caches = [
+            tuple(
+                t.cat([cache_layer[i] for cache_layer in cache], dim=0)
+                for i in range(len(cache[0]))
+            )
+            for cache in zip(*caches)
+        ]
+
+        if cache_device != self.device:
+            batched_caches = tuple(
+                tuple(kv.to(self.device) for kv in cache_layer)
+                for cache_layer in batched_caches
+            )
 
         return batched_caches, batched_sentence_ids, batched_labels
 
@@ -179,7 +206,7 @@ if __name__ == "__main__":
         "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
         "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
         "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam.",
-    ]
+    ] * 10
     token_list = [tokenizer.encode(string) for string in string_list]
     activation_list = [t.rand(len(tokens)) for tokens in token_list]
 
@@ -189,18 +216,20 @@ if __name__ == "__main__":
     dataloader = CachedDataloader(
         example_dataset, batch_size=50, shuffle=True, device=device
     )
-
 # %%
 if __name__ == "__main__":
     probs_on_label = np.array([])
-    for sentence_cache, question_end_ids, label in dataloader:
+    for sentence_cache, question_end_ids, label in tqdm(dataloader):
         output = model(
             question_end_ids, past_key_values=sentence_cache, return_dict=True
         )
         output_probs = F.softmax(output.logits, dim=-1)
+        del output
+        del sentence_cache
         prob_on_label = output_probs[0, -1, label].detach().cpu().numpy()
         probs_on_label = np.append(probs_on_label, prob_on_label)
 
     print(probs_on_label)
+    print(np.mean(probs_on_label))
 
 # %%
