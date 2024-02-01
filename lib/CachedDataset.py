@@ -183,6 +183,7 @@ class CachedDataset(Dataset):
         token_list, attention_masks = self.tokens_to_padded_tokens_and_attention_mask(
             token_list
         )
+        self.sentence_attention_mask_list = attention_masks
 
         for sentence_idx, (tokens, activations, attention_mask) in enumerate(
             zip(token_list, activation_list, attention_masks)
@@ -224,7 +225,7 @@ class CachedDataset(Dataset):
         self, tokens: List[int], activations: List[float], sentence_idx: int
     ):
         """Prepare labels and question end IDs for each token in a sentence."""
-        for token_idx, (token, activation) in enumerate(zip(tokens, activations)):
+        for token, activation in zip(tokens, activations):
             label_id = (
                 self.yes_label_id if activation > self.threshold else self.no_label_id
             )
@@ -260,7 +261,14 @@ class CachedDataset(Dataset):
         )
         question_end_id = t.tensor(self.rest_of_prompt[idx]).unsqueeze(0)
         label_id = self.labels[idx]
-        return complete_cache, question_end_id, label_id
+
+        complete_mask = self.mask_before_sentence + self.sentence_attention_mask_list[
+            self.datapoint_to_sentence_map[idx]
+        ] + [1] * len(self.rest_of_prompt[idx])
+        complete_mask = t.tensor(complete_mask, dtype=t.long).unsqueeze(0).to(
+            self.model.device
+        )
+        return complete_cache, question_end_id, label_id, complete_mask
 
     def __len__(self):
         return len(self.labels)
@@ -278,11 +286,12 @@ class CachedDataloader(DataLoader):
 
     def custom_collate_fn(self, batch):
         """Custom collation function to handle caching and device placement."""
-        caches, question_end_ids, labels = zip(*batch)
+        caches, question_end_ids, labels, attention_masks = zip(*batch)
         batched_caches = self.batch_caches(caches)
         batched_question_end_ids = t.cat(question_end_ids, dim=0).to(self.device)
+        batched_attention_masks = t.cat(attention_masks, dim=0).to(self.device)
         batched_labels = t.tensor(labels, dtype=t.long).to(self.device)
-        return batched_caches, batched_question_end_ids, batched_labels
+        return batched_caches, batched_question_end_ids, batched_labels, batched_attention_masks
 
     def batch_caches(self, caches):
         """Batch caches together, moving to the correct device if necessary."""
@@ -322,7 +331,7 @@ if __name__ == "__main__":
                             If the token does not represent the concept, respond with 'Rating: 0'.
                             Focus solely on the token and use the other text for context only. Be confident.
                             """,
-        user_prompt=lambda sentence, concept, token: f"In the sentence '{sentence}', does the token {token} represent the concept {concept}?",
+        user_prompt=lambda sentence, concept, token: f"In the sentence '{sentence}', does the token {token} represent the concept {concept} ?",
         ai_answer="Rating: ",
     )
     string_list = [
@@ -346,9 +355,9 @@ if __name__ == "__main__":
 # %%
 if __name__ == "__main__":
     probs_on_label = np.array([])
-    for sentence_cache, question_end_ids, label in tqdm(dataloader):
+    for sentence_cache, question_end_ids, label, masks in tqdm(dataloader):
         output = model(
-            question_end_ids, past_key_values=sentence_cache, return_dict=True
+            question_end_ids, past_key_values=sentence_cache, return_dict=True, attention_mask=masks
         )
         output_probs = F.softmax(output.logits, dim=-1)
         del output
