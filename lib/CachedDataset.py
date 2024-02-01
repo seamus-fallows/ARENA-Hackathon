@@ -36,8 +36,8 @@ class CachedDataset(Dataset):
         threshhold: float = 0.5,
         sentence_cache_device: Optional[str] = None,
         system_prompt: str = """ Your task is to assess if a given token (word) from some text represents a specified concept. Provide a rating based on this assessment:
-                            If the token represents the concept, respond with "Rating: 1".
-                            If the token does not represent the concept, respond with "Rating: 0".
+                            If the token represents the concept, respond with 'Rating: 1'.
+                            If the token does not represent the concept, respond with 'Rating: 0'.
                             Focus solely on the token and use the other text for context only. Be confident.
                             """,
     ):
@@ -55,7 +55,7 @@ class CachedDataset(Dataset):
         yes_label = tokenizer.encode("1")[-1]
         no_label = tokenizer.encode("0")[-1]
 
-        systemprompt_ids = self.systemprompt_to_ids(tokenizer, self.system_prompt, delete_first_token=False)
+        systemprompt_ids = self.systemprompt_to_ids(tokenizer, self.system_prompt)
         system_promt_cache = self.get_cache(systemprompt_ids.to(device))
 
         attention_masks = []
@@ -131,11 +131,11 @@ class CachedDataset(Dataset):
         return ids, attention_mask
 
     def question_end_to_ids(self, question_token_ids):
-        text_0 = "Concept:"
+        text_0 = "Concept: '"
         ids_0 = self.tokenizer.encode(text_0)[1:]
         text_1 = " Token:"
         ids_1 = self.tokenizer.encode(text_1)[1:]
-        text_2 = self.E_INST + "The rating is "
+        text_2 = self.E_INST + "Rating: "
         ids_2 = self.tokenizer.encode(text_2)[1:]
         ids = ids_0 + [self.magic_token_ids] + ids_1 + [question_token_ids] + ids_2
         return t.tensor(ids).unsqueeze(0)
