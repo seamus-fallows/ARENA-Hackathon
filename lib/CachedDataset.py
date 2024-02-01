@@ -25,12 +25,20 @@ import datetime
 llama_token = "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"
 
 
+def put_cache_on_device(cache, device):
+    if cache[0][0].device != device:
+        cache = tuple(
+            tuple(kv.to(device) for kv in cache_layer) for cache_layer in cache
+        )
+    return cache
+
+
 class CachedDataset(Dataset):
     def __init__(
         self,
         model,
         tokenizer,
-        token_list, # TODO think about making this a tensor
+        token_list,  # TODO think about making this a tensor
         activation_list,
         name: str = "magic",
         threshhold: float = 0.5,
@@ -168,13 +176,15 @@ class CachedDataloader(DataLoader):
 
         cache_device = caches[0][0][0].device
 
-        batched_caches = tuple([
-            tuple(
-                t.cat([cache_layer[i] for cache_layer in cache], dim=0)
-                for i in range(len(cache[0]))
-            )
-            for cache in zip(*caches)
-        ])
+        batched_caches = tuple(
+            [
+                tuple(
+                    t.cat([cache_layer[i] for cache_layer in cache], dim=0)
+                    for i in range(len(cache[0]))
+                )
+                for cache in zip(*caches)
+            ]
+        )
 
         if cache_device != self.device:
             batched_caches = tuple(
