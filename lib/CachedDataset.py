@@ -32,14 +32,14 @@ class CachedDataset(Dataset):
         tokenizer,
         token_list,
         activation_list,
-        name: str = "magic",
+        magic_token_string: str = "magic",
         threshhold: float = 0.5,
     ):
         super().__init__()
         self.B_INST, self.E_INST = "[INST]", "[/INST]"
         self.B_SYS, self.E_SYS = "<<SYS>>", "<</SYS>>"
 
-        self.magic_token_ids = tokenizer.encode(name)[1]
+        self.magic_token_ids = tokenizer.encode(magic_token_string)[1]
         self.tokenizer = tokenizer
         self.model = model
 
@@ -51,7 +51,7 @@ class CachedDataset(Dataset):
                             If the token does not represent the concept, respond with "Rating: 0".
                             Focus solely on the token and use the sentence for context only. Be confident.
                         """
-        systemprompt_ids = self.systemprompt_to_ids(tokenizer, systtem_prompt)
+        systemprompt_ids = self.systemprompt_to_ids(tokenizer, systtem_prompt, delete_first_token=False)
         system_promt_cache = self.get_cache(systemprompt_ids.to(device))
 
         max_len = max([len(tokens) for tokens in token_list])
@@ -102,9 +102,11 @@ class CachedDataset(Dataset):
                 output = self.model(ids, past_key_values=prev_cache, return_dict=True)
         return output.past_key_values
 
-    def sentence_to_ids(self, sentence):
+    def sentence_to_ids(self, sentence, delete_first_token=True):
         post_text = "Concept:"
-        post_text_ids = self.tokenizer.encode(post_text)[1:]
+        post_text_ids = self.tokenizer.encode(post_text)
+        if delete_first_token:
+            post_text_ids = post_text_ids[1:]
         ids = t.tensor(sentence + post_text_ids).unsqueeze(0)
         return ids
 
@@ -155,7 +157,6 @@ class CachedDataloader(DataLoader):
 
         return batched_caches, batched_sentence_ids, batched_labels
 
-
 # %%
 if __name__ == "__main__":
     llama_token = "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"
@@ -204,3 +205,21 @@ if __name__ == "__main__":
     print(probs_on_label)
 
 # %%
+llama_token = "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"
+7
+model = AutoModelForCausalLM.from_pretrained(
+        f"meta-llama/Llama-2-{n_param}b-chat-hf", use_auth_token=llama_token
+    ).to(device)
+tokenizer = AutoTokenizer.from_pretrained(
+        "meta-llama/Llama-2-7b-chat-hf",
+        padding=True,
+        use_auth_token=llama_token,
+        pad_token = tokenizer.eos_token,
+    )
+
+# Your input text sequences
+text_sequences = ["short sequence", "much longer sequence with many more words. Indeed."]
+cached_prompt = "This is the initial prompt."
+cached_prompt_tokens = tokenizer(cached_prompt, return_tensors="pt")['input_ids'].to(device)
+
+
