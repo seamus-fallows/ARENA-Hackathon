@@ -13,6 +13,7 @@ from torch import Tensor
 from tqdm.notebook import tqdm
 from jaxtyping import Int, Float
 from typing import List, Dict
+import sys
 
 
 llama_token = "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"
@@ -44,7 +45,9 @@ class CacheUtil:
         """Add two caches along the sequence position."""
         return tuple(
             tuple(
-                t.cat([kv_1, kv_2], dim=-2)
+                t.cat(
+                    [kv_1, kv_2], dim=-2
+                )  # Concatenating along the sequence dimension
                 for kv_1, kv_2 in zip(cache_layer_1, cache_layer_2)
             )
             for cache_layer_1, cache_layer_2 in zip(cache_1, cache_2)
@@ -95,6 +98,12 @@ class CacheUtil:
             part_after_concept,
         )
 
+    @staticmethod
+    def get_cuda_memory_usage(device="cuda:0"):
+        allocated = t.cuda.memory_allocated(device)
+        total = t.cuda.get_device_properties(device).total_memory
+        return allocated / total
+
 
 class CachedDataset(Dataset):
     def __init__(
@@ -114,8 +123,6 @@ class CachedDataset(Dataset):
         self.magic_token_id = tokenizer.encode(
             magic_token_string, add_special_tokens=False
         )[-1]
-        self.yes_label_id = tokenizer.encode("Yes", add_special_tokens=False)[-1]
-        self.no_label_id = tokenizer.encode("No", add_special_tokens=False)[-1]
         self.sentence_cache_device = sentence_cache_device
         self.threshold = threshold
 
@@ -150,6 +157,13 @@ class CachedDataset(Dataset):
             self.ids_after_token_before_concept
         )
         self.mask_after_concept = [1] * len(self.ids_after_concept)
+
+        self.yes_label_id = self.tokenizer.encode(
+            prompt_obj["yes_answer"], add_special_tokens=False
+        )[-1]
+        self.no_label_id = self.tokenizer.encode(
+            prompt_obj["no_answer"], add_special_tokens=False
+        )[-1]
 
     def tokens_to_padded_tokens_and_attention_mask(self, token_list: List[List[int]]):
         padded_token_list, attention_masks = [], []
@@ -188,6 +202,10 @@ class CachedDataset(Dataset):
         for sentence_idx, (tokens, activations, attention_mask) in enumerate(
             zip(token_list, activation_list, attention_masks)
         ):
+            sys.stdout.write(
+                f"\GPU: {CacheUtil.get_cuda_memory_usage(self.model.device)*100:.2f}% full, Processing sentence {sentence_idx + 1}/{len(token_list)}\r"
+            )
+            sys.stdout.flush()  # Ensure the output is displayed immediately
             self.prepare_sentence_cache(tokens, attention_mask)
             self.prepare_labels_and_questions(tokens, activations, sentence_idx)
 
@@ -262,11 +280,13 @@ class CachedDataset(Dataset):
         question_end_id = t.tensor(self.rest_of_prompt[idx]).unsqueeze(0)
         label_id = self.labels[idx]
 
-        complete_mask = self.mask_before_sentence + self.sentence_attention_mask_list[
-            self.datapoint_to_sentence_map[idx]
-        ] + [1] * len(self.rest_of_prompt[idx])
-        complete_mask = t.tensor(complete_mask, dtype=t.long).unsqueeze(0).to(
-            self.model.device
+        complete_mask = (
+            self.mask_before_sentence
+            + self.sentence_attention_mask_list[self.datapoint_to_sentence_map[idx]]
+            + [1] * len(self.rest_of_prompt[idx])
+        )
+        complete_mask = (
+            t.tensor(complete_mask, dtype=t.long).unsqueeze(0).to(self.model.device)
         )
         return complete_cache, question_end_id, label_id, complete_mask
 
@@ -291,11 +311,17 @@ class CachedDataloader(DataLoader):
         batched_question_end_ids = t.cat(question_end_ids, dim=0).to(self.device)
         batched_attention_masks = t.cat(attention_masks, dim=0).to(self.device)
         batched_labels = t.tensor(labels, dtype=t.long).to(self.device)
-        return batched_caches, batched_question_end_ids, batched_labels, batched_attention_masks
+        return (
+            batched_caches,
+            batched_question_end_ids,
+            batched_labels,
+            batched_attention_masks,
+        )
 
     def batch_caches(self, caches):
         """Batch caches together, moving to the correct device if necessary."""
         # Flatten and combine caches across the batch
+
         batched_caches = tuple(
             tuple(
                 t.cat([cache_layer[i] for cache_layer in cache], dim=0)
@@ -333,6 +359,8 @@ if __name__ == "__main__":
                             """,
         user_prompt=lambda sentence, concept, token: f"In the sentence '{sentence}', does the token {token} represent the concept {concept} ?",
         ai_answer="Rating: ",
+        yes_answer="1",
+        no_answer="0",
     )
     string_list = [
         "Lore ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
@@ -340,7 +368,7 @@ if __name__ == "__main__":
         "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
         "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
         "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam.",
-    ]
+    ] * 23
     token_list = [tokenizer.encode(string)[1:] for string in string_list]
     activation_list = [t.rand(len(tokens)) for tokens in token_list]
 
@@ -349,23 +377,172 @@ if __name__ == "__main__":
     example_dataset = CachedDataset(
         model, tokenizer, token_list, activation_list, prompt
     )
-    dataloader = CachedDataloader(
-        example_dataset, batch_size=50, shuffle=True, device=device
-    )
+    # dataloader = CachedDataloader(
+    #    example_dataset, batch_size=50, shuffle=True, device=device
+    # )
 # %%
 if __name__ == "__main__":
     probs_on_label = np.array([])
     for sentence_cache, question_end_ids, label, masks in tqdm(dataloader):
         output = model(
-            question_end_ids, past_key_values=sentence_cache, return_dict=True, attention_mask=masks
+            question_end_ids,
+            past_key_values=sentence_cache,
+            return_dict=True,
+            attention_mask=masks,
         )
         output_probs = F.softmax(output.logits, dim=-1)
         del output
         del sentence_cache
+        del question_end_ids
+        del masks
+        t.cuda.empty_cache()
         prob_on_label = output_probs[0, -1, label].detach().cpu().numpy()
         probs_on_label = np.append(probs_on_label, prob_on_label)
 
     print(probs_on_label)
     print(np.mean(probs_on_label))
+
+# %%
+from tqdm import tqdm
+import torch
+import time
+
+
+# Function to get current CUDA memory usage
+def get_cuda_memory_usage(device="cuda:0"):
+    allocated = torch.cuda.memory_allocated(device)
+    total = torch.cuda.get_device_properties(device).total_memory
+    return allocated / total
+
+
+# Custom tqdm class to update secondary progress bar with CUDA memory usage
+class TqdmExtra(tqdm):
+    def __init__(self, *args, secondary=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.secondary = secondary
+
+    def update_cuda_memory(self):
+        if self.secondary:
+            self.secondary.n = get_cuda_memory_usage() * 100  # Convert to percentage
+            self.secondary.refresh()
+
+
+# Main processing loop with two progress bars
+def process_data(token_list, activation_list, attention_masks):
+    cuda_memory_bar = tqdm(total=100, desc="CUDA Memory Usage (%)")
+    with TqdmExtra(
+        total=len(token_list), desc="Processing Data", secondary=cuda_memory_bar
+    ) as pbar:
+        for sentence_idx, (tokens, activations, attention_mask) in enumerate(
+            zip(token_list, activation_list, attention_masks)
+        ):
+            # Simulate processing
+            time.sleep(0.1)  # Remove this in your actual code
+            # self.prepare_sentence_cache(tokens, attention_mask)
+            # self.prepare_labels_and_questions(tokens, activations, sentence_idx)
+
+            pbar.update(1)  # Update primary progress based on data processing
+            pbar.refresh()
+            pbar.update_cuda_memory()  # Update secondary progress bar with CUDA memory usage
+
+            # Optionally, update the CUDA memory bar less frequently to reduce overhead
+            # if sentence_idx % 10 == 0:
+            #     pbar.update_cuda_memory()
+
+
+# Simulate data
+token_list = list(range(100))
+activation_list = list(range(100))
+attention_masks = list(range(100))
+
+# Call your processing function
+process_data(token_list, activation_list, attention_masks)
+
+# %%
+import time
+import sys
+
+
+def process_data_with_print(token_list):
+    total = len(token_list)
+    for i, _ in enumerate(token_list):
+        # Simulate some processing workload
+        time.sleep(1)
+
+        # Calculate the percentage completion
+        percent_complete = (i + 1) / total * 100
+
+        # Print the progress percentage, overwriting the previous line
+        sys.stdout.write(f"\rProcessing: {percent_complete:.2f}% complete")
+        sys.stdout.flush()  # Ensure the output is displayed immediately
+
+    # Print a newline character at the end to move to a new line after completion
+    print()
+
+
+# Example usage
+token_list = list(range(10))  # Example list of items to process
+process_data_with_print(token_list)
+
+
+# %%
+print(example_dataset.cache_before_sentence[0][0].shape)
+print(len(example_dataset.sentence_caches))
+print(len(example_dataset.sentence_caches[0]))
+print(len(example_dataset.sentence_caches[0][0]))
+size_in_bits = (
+    example_dataset.cache_before_sentence[0][0].element_size()
+    * example_dataset.cache_before_sentence[0][0].nelement()
+)
+size_in_MiB = size_in_bits / 8 / 1024 / 1024
+
+print(size_in_MiB)
+
+print(
+    size_in_MiB
+    * len(example_dataset.sentence_caches)
+    * len(example_dataset.sentence_caches[0])
+    * len(example_dataset.sentence_caches[0][0])
+)
+
+# %%
+import torch
+
+
+def estimate_object_gpu_memory_usage(obj, verbose=False):
+    total_memory = 0
+
+    def estimate_tensor_memory(tensor):
+        return tensor.element_size() * tensor.nelement()
+
+    def recurse_attributes(obj):
+        nonlocal total_memory
+        if torch.is_tensor(obj) and obj.is_cuda:
+            memory = estimate_tensor_memory(obj)
+            total_memory += memory
+            return memory
+        elif hasattr(obj, "__dict__"):
+            return sum(recurse_attributes(value) for key, value in obj.__dict__.items())
+        elif isinstance(obj, (list, tuple)):
+            return sum(recurse_attributes(item) for item in obj)
+        elif isinstance(obj, dict):
+            return sum(recurse_attributes(value) for key, value in obj.items())
+        return 0
+
+    memory = recurse_attributes(obj)
+
+    if verbose:
+        print(f"Estimated GPU memory usage: {memory / (1024 ** 2):.2f} MB")
+
+    return memory
+
+
+# %%
+estimate_object_gpu_memory_usage(example_dataset, verbose=True)
+estimate_object_gpu_memory_usage(example_dataset.cache_before_sentence, verbose=True)
+# %%
+t.cuda.empty_cache()
+# %%
+del dataloader
 
 # %%
