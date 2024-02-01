@@ -401,148 +401,40 @@ if __name__ == "__main__":
 
     print(probs_on_label)
     print(np.mean(probs_on_label))
-
 # %%
-from tqdm import tqdm
-import torch
-import time
+if __name__ == "__main__":
+    import torch
 
+    def estimate_object_gpu_memory_usage(obj, verbose=False):
+        total_memory = 0
 
-# Function to get current CUDA memory usage
-def get_cuda_memory_usage(device="cuda:0"):
-    allocated = torch.cuda.memory_allocated(device)
-    total = torch.cuda.get_device_properties(device).total_memory
-    return allocated / total
+        def estimate_tensor_memory(tensor):
+            return tensor.element_size() * tensor.nelement()
 
+        def recurse_attributes(obj):
+            nonlocal total_memory
+            if torch.is_tensor(obj) and obj.is_cuda:
+                memory = estimate_tensor_memory(obj)
+                total_memory += memory
+                return memory
+            elif hasattr(obj, "__dict__"):
+                return sum(
+                    recurse_attributes(value) for key, value in obj.__dict__.items()
+                )
+            elif isinstance(obj, (list, tuple)):
+                return sum(recurse_attributes(item) for item in obj)
+            elif isinstance(obj, dict):
+                return sum(recurse_attributes(value) for key, value in obj.items())
+            return 0
 
-# Custom tqdm class to update secondary progress bar with CUDA memory usage
-class TqdmExtra(tqdm):
-    def __init__(self, *args, secondary=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.secondary = secondary
+        memory = recurse_attributes(obj)
 
-    def update_cuda_memory(self):
-        if self.secondary:
-            self.secondary.n = get_cuda_memory_usage() * 100  # Convert to percentage
-            self.secondary.refresh()
+        if verbose:
+            print(f"Estimated GPU memory usage: {memory / (1024 ** 2):.2f} MB")
 
+        return memory
 
-# Main processing loop with two progress bars
-def process_data(token_list, activation_list, attention_masks):
-    cuda_memory_bar = tqdm(total=100, desc="CUDA Memory Usage (%)")
-    with TqdmExtra(
-        total=len(token_list), desc="Processing Data", secondary=cuda_memory_bar
-    ) as pbar:
-        for sentence_idx, (tokens, activations, attention_mask) in enumerate(
-            zip(token_list, activation_list, attention_masks)
-        ):
-            # Simulate processing
-            time.sleep(0.1)  # Remove this in your actual code
-            # self.prepare_sentence_cache(tokens, attention_mask)
-            # self.prepare_labels_and_questions(tokens, activations, sentence_idx)
-
-            pbar.update(1)  # Update primary progress based on data processing
-            pbar.refresh()
-            pbar.update_cuda_memory()  # Update secondary progress bar with CUDA memory usage
-
-            # Optionally, update the CUDA memory bar less frequently to reduce overhead
-            # if sentence_idx % 10 == 0:
-            #     pbar.update_cuda_memory()
-
-
-# Simulate data
-token_list = list(range(100))
-activation_list = list(range(100))
-attention_masks = list(range(100))
-
-# Call your processing function
-process_data(token_list, activation_list, attention_masks)
-
-# %%
-import time
-import sys
-
-
-def process_data_with_print(token_list):
-    total = len(token_list)
-    for i, _ in enumerate(token_list):
-        # Simulate some processing workload
-        time.sleep(1)
-
-        # Calculate the percentage completion
-        percent_complete = (i + 1) / total * 100
-
-        # Print the progress percentage, overwriting the previous line
-        sys.stdout.write(f"\rProcessing: {percent_complete:.2f}% complete")
-        sys.stdout.flush()  # Ensure the output is displayed immediately
-
-    # Print a newline character at the end to move to a new line after completion
-    print()
-
-
-# Example usage
-token_list = list(range(10))  # Example list of items to process
-process_data_with_print(token_list)
-
-
-# %%
-print(example_dataset.cache_before_sentence[0][0].shape)
-print(len(example_dataset.sentence_caches))
-print(len(example_dataset.sentence_caches[0]))
-print(len(example_dataset.sentence_caches[0][0]))
-size_in_bits = (
-    example_dataset.cache_before_sentence[0][0].element_size()
-    * example_dataset.cache_before_sentence[0][0].nelement()
-)
-size_in_MiB = size_in_bits / 8 / 1024 / 1024
-
-print(size_in_MiB)
-
-print(
-    size_in_MiB
-    * len(example_dataset.sentence_caches)
-    * len(example_dataset.sentence_caches[0])
-    * len(example_dataset.sentence_caches[0][0])
-)
-
-# %%
-import torch
-
-
-def estimate_object_gpu_memory_usage(obj, verbose=False):
-    total_memory = 0
-
-    def estimate_tensor_memory(tensor):
-        return tensor.element_size() * tensor.nelement()
-
-    def recurse_attributes(obj):
-        nonlocal total_memory
-        if torch.is_tensor(obj) and obj.is_cuda:
-            memory = estimate_tensor_memory(obj)
-            total_memory += memory
-            return memory
-        elif hasattr(obj, "__dict__"):
-            return sum(recurse_attributes(value) for key, value in obj.__dict__.items())
-        elif isinstance(obj, (list, tuple)):
-            return sum(recurse_attributes(item) for item in obj)
-        elif isinstance(obj, dict):
-            return sum(recurse_attributes(value) for key, value in obj.items())
-        return 0
-
-    memory = recurse_attributes(obj)
-
-    if verbose:
-        print(f"Estimated GPU memory usage: {memory / (1024 ** 2):.2f} MB")
-
-    return memory
-
-
-# %%
-estimate_object_gpu_memory_usage(example_dataset, verbose=True)
-estimate_object_gpu_memory_usage(example_dataset.cache_before_sentence, verbose=True)
-# %%
-t.cuda.empty_cache()
-# %%
-del dataloader
-
-# %%
+    estimate_object_gpu_memory_usage(example_dataset, verbose=True)
+    estimate_object_gpu_memory_usage(
+        example_dataset.cache_before_sentence, verbose=True
+    )
