@@ -301,6 +301,10 @@ class Training:
         prediction_on_magic_pos = shifted_output_logits[shifted_magic_token_pos]
 
         kl_loss = KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
+        if self.step < 400:
+            self.loss_coeffs["entropy"] = 0
+        else:
+            self.loss_coeffs["entropy"] = 0.5
 
         total_loss = (
             self.loss_coeffs["label"] * label_loss
@@ -315,7 +319,8 @@ class Training:
         tokens: Int[Tensor, "batch seq_len"],
         target_tokens: Int[Tensor, "batch seq_len"],
         magic_token_pos: Int[Tensor, "batch seq_len"],
-        caches
+        caches,
+        attention_masks,
     ) -> dict[str, Float[Tensor, "1"]]:
         """
         takes a batched set of tokens, and a the magic token positions. It then creates the embeddings, runs the forwardpass, calculates the losses, and makes a step
@@ -324,7 +329,7 @@ class Training:
         """
         self.optimizer.zero_grad()
         embeddings = self.create_modified_embeddings(tokens, magic_token_pos)
-        output_logits = self.model(inputs_embeds=embeddings, past_key_values = caches).logits
+        output_logits = self.model(inputs_embeds=embeddings, past_key_values = caches, attention_mask=attention_masks).logits
         total_loss, label_loss, kl_loss, entropy_loss = self.calculate_losses(
             output_logits, self.magic_token_vector, magic_token_pos, target_tokens
         )
@@ -389,14 +394,14 @@ class Training:
                 onehot_vector[id] = 1e10
 
                 
-                for cache, tokens, target_tokens in dataloader:
+                for caches, question_end_tokens, target_tokens, attention_masks in dataloader:
 
 
-                    magic_token_pos = tokens == self.magic_ids
+                    magic_token_pos = question_end_tokens == self.magic_ids
                     embeddings = self.create_modified_embeddings(
-                        tokens, magic_token_pos, onehot_vector
+                        question_end_tokens, magic_token_pos, onehot_vector
                     )
-                    output_logits = self.model(inputs_embeds=embeddings, past_key_values = cache).logits
+                    output_logits = self.model(inputs_embeds=embeddings, past_key_values = caches, attention_mask=attention_masks).logits
                     (
                         total_loss,
                         label_loss,
@@ -430,11 +435,11 @@ class Training:
 
         # iterate through dataloader
         for epoch in tqdm(range(self.config.epochs)):
-            for caches,tokens, target_tokens in dataloader:
+            for caches, question_end_tokens, target_tokens, attention_masks in dataloader:
 
-                magic_token_pos = (tokens == self.magic_ids)
+                magic_token_pos = (question_end_tokens == self.magic_ids)
 
-                losses, final_token_acc = self.make_step(tokens, target_tokens, magic_token_pos, caches)
+                losses, final_token_acc = self.make_step(question_end_tokens, target_tokens, magic_token_pos, caches, attention_masks)
                 for key, value in losses.items():
                     self.loss_log[key].append(value)
                 
@@ -466,3 +471,5 @@ class Training:
         )
         return logs
 
+
+# %%

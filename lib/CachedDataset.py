@@ -114,8 +114,8 @@ class CachedDataset(Dataset):
         self.magic_token_id = tokenizer.encode(
             magic_token_string, add_special_tokens=False
         )[-1]
-        self.yes_label_id = tokenizer.encode("1", add_special_tokens=False)[-1]
-        self.no_label_id = tokenizer.encode("0", add_special_tokens=False)[-1]
+        self.yes_label_id = tokenizer.encode("Yes", add_special_tokens=False)[-1]
+        self.no_label_id = tokenizer.encode("No", add_special_tokens=False)[-1]
         self.sentence_cache_device = sentence_cache_device
         self.threshold = threshold
 
