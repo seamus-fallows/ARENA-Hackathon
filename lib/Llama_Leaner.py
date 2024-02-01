@@ -62,6 +62,7 @@ class Logs:
         losses: dict[str, Float[Tensor, "1"]],
         top_tokens: dict[Int, dict[str, Any]],
         specified_tokens: dict[Int, dict[str, Any]],
+        final_token_accuracy: dict[str, list[float]],
         config: Config,
         model_name: str = None,
         dataset_name: str = None,
@@ -74,6 +75,7 @@ class Logs:
         self.dataset_name = dataset_name
         self.run_date = run_date
         self.specified_tokens = specified_tokens
+        self.final_token_accuracy = final_token_accuracy
 
     def save(self, path: str) -> None:
         pass
@@ -191,6 +193,18 @@ class Logs:
         plt.xlabel("label loss")
         # plt.xscale("log")
         plt.ylabel("kl loss")
+        plt.show()
+
+    def plot_final_token_accuracy(self, tokenizer, figsize: Tuple[int] = (10, 5)):
+        plt.figure(figsize=figsize)
+        for id in self.final_token_accuracy.keys():
+            plt.plot(
+                self.final_token_accuracy[id],
+                label=tokenizer.decode([id]),
+            )
+        plt.xlabel("step")
+        plt.ylabel("Accuracy")
+        plt.legend()
         plt.show()
 
 
@@ -317,13 +331,24 @@ class Training:
         total_loss.backward()
         self.optimizer.step()
 
+        # calculate final token accuracies
+        final_token_logits = output_logits[:, -1, :]
+        final_token_predictions = t.argmax(final_token_logits, dim=-1)
+        prediction_results = (final_token_predictions == target_tokens)
+        # accuacy for each class
+        target_token_ids = set(target_tokens.tolist())
+        final_token_acc = {target_token_id: None for target_token_id in target_token_ids}
+        for target_token_id in target_token_ids:
+            accuracy = prediction_results[target_tokens == target_token_id].float().mean().item()
+            final_token_acc[target_token_id] = accuracy
+
         loss_log = {
             "loss": total_loss.item(),
             "label_loss": label_loss.item(),
             "kl_loss": kl_loss.item(),
             "entropy_loss": entropy_loss.item(),
         }
-        return loss_log
+        return loss_log, final_token_acc
 
     def log_top_tokens(
         self,
@@ -401,16 +426,20 @@ class Training:
         self.loss_log = defaultdict(list)
         self.top_token_log = {}
         self.specified_tokens_log = {}
+        self.final_token_accuracy = defaultdict(list)
 
         # iterate through dataloader
         for epoch in tqdm(range(self.config.epochs)):
             for caches,tokens, target_tokens in dataloader:
 
-                magic_token_pos = tokens == self.magic_ids
+                magic_token_pos = (tokens == self.magic_ids)
 
-                losses = self.make_step(tokens, target_tokens, magic_token_pos, caches)
+                losses, final_token_acc = self.make_step(tokens, target_tokens, magic_token_pos, caches)
                 for key, value in losses.items():
                     self.loss_log[key].append(value)
+                
+                for key, value in final_token_acc.items():
+                    self.final_token_accuracy[key].append(value)
 
                 self.log_top_tokens(n_top_tracked_tokens, specified_tokens)
                 self.step += 1
@@ -429,6 +458,7 @@ class Training:
             self.loss_log,
             self.top_token_log,
             self.specified_tokens_log,
+            self.final_token_accuracy,
             self.config,
             model_name,
             dataset_name,
