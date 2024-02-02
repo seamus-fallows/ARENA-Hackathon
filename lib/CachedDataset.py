@@ -302,6 +302,7 @@ class CachedDataset(Dataset):
             sentence=attention_mask
         )
         full_attention_maks = [1 if x != 0 else 0 for x in full_attention_context]
+        self.sentence_attentions.append(full_attention_maks)
 
         sentence_ids = t.tensor(sentence_ids).unsqueeze(0)
 
@@ -327,7 +328,6 @@ class CachedDataset(Dataset):
             )
 
         self.sentence_caches.append(sentence_cache)
-        self.sentence_attentions.append(attention_mask)
 
         return sentence_cache
 
@@ -379,8 +379,8 @@ class CachedDataset(Dataset):
 
         complete_mask = (
             self.universal_part_masks
-            + self.sentence_attention_mask_list[self.datapoint_to_sentence_map[idx]]
-            + [1] * len(question_end_id)
+            + self.sentence_attentions[self.datapoint_to_sentence_map[idx]]
+            + [1] * question_end_id.shape[-1]
         )
         complete_mask = t.tensor(complete_mask, dtype=t.long).unsqueeze(0)
         return complete_cache, question_end_id, label_id, complete_mask
@@ -507,16 +507,12 @@ if __name__ == "__main__":
             f"\GPU: {CacheUtil.get_cuda_memory_usage(model.device)*100:.2f}% full, Processing batch {idx + 1}/{len(dataloader)}\r"
         )
         sys.stdout.flush()  # Ensure the output is displayed immediately
-        # print(sentence_cache[0][0].shape)
-        # print(question_end_ids.shape)
-        # print(label.shape)
-        # print(masks.shape)
 
         output = model(
             question_end_ids,
             past_key_values=sentence_cache,
             return_dict=True,
-            # attention_mask=masks,
+            attention_mask=masks,
         )
         output_probs = F.softmax(output.logits, dim=-1)
         del output
@@ -569,20 +565,6 @@ if __name__ == "__main__":
 # %%
 if __name__ == "__main__":
 
-    prompt = dict(
-        system_prompt=""" Your task is to assess if a given token (word) from some text represents a specified concept. Provide a rating based on this assessment:
-                                If the token represents the concept, respond with 'Rating: 1'.
-                                If the token does not represent the concept, respond with 'Rating: 0'.
-                                Focus solely on the token and use the other text for context only. Be confident.
-                                """,
-        # fmt: off
-        user_prompt=lambda sentence, concept, token: ["Is",concept," the word '",concept,"' an examle of a ",token,"?", sentence , "hallo",],
-        # fmt: on
-        ai_answer="Rating: ",
-        yes_answer="1",
-        no_answer="0",
-    )
-
     syntaxed_prompt_func = PromptUtil.add_syntax_to_prompt_func(prompt)
     universal_part, sentence_dependent_part, token_dependent_part = (
         PromptUtil.tokenize_prompt_funciton(syntaxed_prompt_func, tokenizer)
@@ -608,13 +590,5 @@ if __name__ == "__main__":
         + token_dependent_part(token=token_tokens, concept=concept_tokens)
     )
     print(tokenizer.decode(total_tokens))
-# %%
-sentence_cache, question_end_ids, label, masks = next(iter(dataloader))
-# %%
-question_end_ids.shape
-print(sentence_cache[0][0].shape)
-print(question_end_ids.shape)
-print(label.shape)
-print(masks.shape)
 
 # %%
