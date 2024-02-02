@@ -482,6 +482,16 @@ if __name__ == "__main__":
         "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
         "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam.",
     ] * 10
+    string_list = [
+        "a",
+        "b",
+        "c",
+        "d",
+        "1",
+        "2",
+        "3",
+        "4",
+    ] * 10
     token_list = [tokenizer.encode(string)[1:] for string in string_list]
     activation_list = [t.rand(len(tokens)) for tokens in token_list]
 
@@ -497,7 +507,7 @@ if __name__ == "__main__":
         seperate_sentence_cache=False,
     )
     dataloader = CachedDataloader(
-        example_dataset, batch_size=50, shuffle=True, device=device
+        example_dataset, batch_size=40, shuffle=True, device=device
     )
 # %%
 if __name__ == "__main__":
