@@ -1,8 +1,14 @@
 # %%
 import torch as t
 from torch.nn import functional as F
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW, AutoModelForCausalLM, AutoTokenizer
-from transformers.models.llama.modeling_llama import LlamaForCausalLM 
+from transformers import (
+    GPT2Tokenizer,
+    GPT2LMHeadModel,
+    AdamW,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+)
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 import einops
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +21,7 @@ from typing import List, Dict
 from collections import defaultdict
 from torch.utils.data import DataLoader, Dataset
 import datetime
+
 llama_token = "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"
 
 
@@ -224,10 +231,11 @@ class Training:
         tokenized_magic_word = self.tokenizer.encode(config.magic_word)
 
         if not isinstance(self.tokenizer, GPT2Tokenizer):
-            tokenized_magic_word = tokenized_magic_word[1:]  
+            tokenized_magic_word = tokenized_magic_word[1:]
 
         assert len(tokenized_magic_word) == 1, "Magic word must be a single token"
         self.magic_ids = tokenized_magic_word[-1]
+
     def intialise_random_token_vector(self) -> None:
         magic_token_vector = t.empty(self.vocab_size, device=self.device).normal_(
             mean=0, std=self.config.intitialization_std
@@ -252,8 +260,7 @@ class Training:
         elif isinstance(self.model, GPT2LMHeadModel):
             embedding_matrix = self.model.transformer.wte.weight
         else:
-            raise NotImplementedError 
-
+            raise NotImplementedError
 
         inputs_embeds = embedding_matrix[
             tokens
@@ -301,7 +308,6 @@ class Training:
         prediction_on_magic_pos = shifted_output_logits[shifted_magic_token_pos]
 
         kl_loss = KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
-
         total_loss = (
             self.loss_coeffs["label"] * label_loss
             + self.loss_coeffs["kl"] * kl_loss
@@ -315,7 +321,8 @@ class Training:
         tokens: Int[Tensor, "batch seq_len"],
         target_tokens: Int[Tensor, "batch seq_len"],
         magic_token_pos: Int[Tensor, "batch seq_len"],
-        caches
+        caches,
+        attention_masks,
     ) -> dict[str, Float[Tensor, "1"]]:
         """
         takes a batched set of tokens, and a the magic token positions. It then creates the embeddings, runs the forwardpass, calculates the losses, and makes a step
@@ -324,7 +331,11 @@ class Training:
         """
         self.optimizer.zero_grad()
         embeddings = self.create_modified_embeddings(tokens, magic_token_pos)
-        output_logits = self.model(inputs_embeds=embeddings, past_key_values = caches).logits
+        output_logits = self.model(
+            inputs_embeds=embeddings,
+            past_key_values=caches,
+            attention_mask=attention_masks,
+        ).logits
         total_loss, label_loss, kl_loss, entropy_loss = self.calculate_losses(
             output_logits, self.magic_token_vector, magic_token_pos, target_tokens
         )
@@ -334,12 +345,19 @@ class Training:
         # calculate final token accuracies
         final_token_logits = output_logits[:, -1, :]
         final_token_predictions = t.argmax(final_token_logits, dim=-1)
-        prediction_results = (final_token_predictions == target_tokens)
+        prediction_results = final_token_predictions == target_tokens
         # accuacy for each class
         target_token_ids = set(target_tokens.tolist())
-        final_token_acc = {target_token_id: None for target_token_id in target_token_ids}
+        final_token_acc = {
+            target_token_id: None for target_token_id in target_token_ids
+        }
         for target_token_id in target_token_ids:
-            accuracy = prediction_results[target_tokens == target_token_id].float().mean().item()
+            accuracy = (
+                prediction_results[target_tokens == target_token_id]
+                .float()
+                .mean()
+                .item()
+            )
             final_token_acc[target_token_id] = accuracy
 
         loss_log = {
@@ -388,15 +406,21 @@ class Training:
                 onehot_vector = t.ones(self.vocab_size).to(device) * (-1e10)
                 onehot_vector[id] = 1e10
 
-                
-                for cache, tokens, target_tokens in dataloader:
-
-
-                    magic_token_pos = tokens == self.magic_ids
+                for (
+                    caches,
+                    question_end_tokens,
+                    target_tokens,
+                    attention_masks,
+                ) in dataloader:
+                    magic_token_pos = question_end_tokens == self.magic_ids
                     embeddings = self.create_modified_embeddings(
-                        tokens, magic_token_pos, onehot_vector
+                        question_end_tokens, magic_token_pos, onehot_vector
                     )
-                    output_logits = self.model(inputs_embeds=embeddings, past_key_values = cache).logits
+                    output_logits = self.model(
+                        inputs_embeds=embeddings,
+                        past_key_values=caches,
+                        attention_mask=attention_masks,
+                    ).logits
                     (
                         total_loss,
                         label_loss,
@@ -430,14 +454,24 @@ class Training:
 
         # iterate through dataloader
         for epoch in tqdm(range(self.config.epochs)):
-            for caches,tokens, target_tokens in dataloader:
+            for (
+                caches,
+                question_end_tokens,
+                target_tokens,
+                attention_masks,
+            ) in dataloader:
+                magic_token_pos = question_end_tokens == self.magic_ids
 
-                magic_token_pos = (tokens == self.magic_ids)
-
-                losses, final_token_acc = self.make_step(tokens, target_tokens, magic_token_pos, caches)
+                losses, final_token_acc = self.make_step(
+                    question_end_tokens,
+                    target_tokens,
+                    magic_token_pos,
+                    caches,
+                    attention_masks,
+                )
                 for key, value in losses.items():
                     self.loss_log[key].append(value)
-                
+
                 for key, value in final_token_acc.items():
                     self.final_token_accuracy[key].append(value)
 
@@ -466,3 +500,5 @@ class Training:
         )
         return logs
 
+
+# %%
