@@ -234,6 +234,7 @@ class CachedDataset(Dataset):
         ) = PromptUtil.tokenize_prompt_funciton(syntaxed_prompt_func, self.tokenizer)
 
         self.universal_part_ids = universal_part
+        # print(self.tokenizer.decode(self.universal_part_ids))
         self.universal_part_masks = [1] * len(universal_part)
 
         self.sentence_dependent_part_ids_func = sentence_dependent_part
@@ -284,11 +285,11 @@ class CachedDataset(Dataset):
         for sentence_idx, (tokens, activations, attention_mask) in enumerate(
             zip(token_list, activation_list, attention_masks)
         ):
-
-            sys.stdout.write(
-                f"\GPU: {CacheUtil.get_cuda_memory_usage(self.model.device)*100:.2f}% full, Processing sentence {sentence_idx + 1}/{len(token_list)}\r"
-            )
-            sys.stdout.flush()  # Ensure the output is displayed immediately
+            if t.cuda.is_available():
+                sys.stdout.write(
+                    f"\GPU: {CacheUtil.get_cuda_memory_usage(self.model.device)*100:.2f}% full, Processing sentence {sentence_idx + 1}/{len(token_list)}\r"
+                )
+                sys.stdout.flush()  # Ensure the output is displayed immediately
             self.prepare_sentence_cache(tokens, attention_mask)
 
             self.prepare_labels_and_questions(tokens, activations, sentence_idx)
