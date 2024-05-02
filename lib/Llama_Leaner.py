@@ -230,7 +230,8 @@ class Training:
         self.step = 0
         tokenized_magic_word = self.tokenizer.encode(config.magic_word)
 
-        # if not isinstance(self.tokenizer, GPT2Tokenizer):
+        if len(tokenizer.encode("a")) ==2:
+            tokenized_magic_word = tokenized_magic_word[1:]
         #    tokenized_magic_word = tokenized_magic_word[1:]
 
         assert len(tokenized_magic_word) == 1, "Magic word must be a single token"
@@ -341,6 +342,7 @@ class Training:
         )
         total_loss.backward()
         self.optimizer.step()
+        self.optimizer.zero_grad()
 
         # calculate final token accuracies
         final_token_logits = output_logits[:, -1, :]
@@ -366,6 +368,8 @@ class Training:
             "kl_loss": kl_loss.item(),
             "entropy_loss": entropy_loss.item(),
         }
+
+
         return loss_log, final_token_acc
 
     def log_top_tokens(
@@ -485,8 +489,13 @@ class Training:
         # add maximum probability to the log of each id
         for id in self.top_token_log.keys():
             self.top_token_log[id]["max_prob"] = max(self.top_token_log[id]["prob"])
+        
+    
 
-        self.add_ratings_to_id_log(dataloader, n_top_tracked_tokens)
+        self.optimizer.zero_grad()
+        t.cuda.empty_cache()
+        with t.no_grad():
+            self.add_ratings_to_id_log(dataloader, n_top_tracked_tokens)
 
         logs = Logs(
             self.loss_log,
