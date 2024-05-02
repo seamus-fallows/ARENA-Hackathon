@@ -166,9 +166,21 @@ class PromptUtil:
         )
 
     @staticmethod
-    def add_syntax_to_prompt_func(prompt_obj):
-        B_INST, E_INST = "[INST]", "[/INST]"
-        B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+    def add_syntax_to_prompt_func(prompt_obj, version="Llama3"):
+        if version == "Llama2":
+            B_INST, E_INST = "[INST]", "[/INST]"
+            B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+        elif version == "Llama3":
+            B_INST, E_INST = (
+                "<|begin_of_text|>",
+                "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n",
+            )
+            B_SYS, E_SYS = (
+                "<|start_header_id|>system<|end_header_id|>\n",
+                "<|eot_id|><|start_header_id|>user<|end_header_id|>\n",
+            )
+        else:
+            raise ValueError("Invalid version, use 'Llama2' or 'Llama3'")
 
         # Extract the lambda function for user prompts
         user_prompt_func = prompt_obj["user_prompt"]
