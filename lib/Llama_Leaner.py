@@ -230,8 +230,8 @@ class Training:
         self.step = 0
         tokenized_magic_word = self.tokenizer.encode(config.magic_word)
 
-        if not isinstance(self.tokenizer, GPT2Tokenizer):
-            tokenized_magic_word = tokenized_magic_word[1:]
+        # if not isinstance(self.tokenizer, GPT2Tokenizer):
+        #    tokenized_magic_word = tokenized_magic_word[1:]
 
         assert len(tokenized_magic_word) == 1, "Magic word must be a single token"
         self.magic_ids = tokenized_magic_word[-1]
