@@ -23,7 +23,7 @@ prompt = dict(
 data_token_ids, labels = generate_data.generate_animal_data(tokenizer)
 
 dataset = CachedDataset.CachedDataset(
-    model, tokenizer, data_token_ids, labels, prompt, sentence_cache_device=device
+    model, tokenizer, data_token_ids, labels, prompt, sentence_cache_device=device, p_threshold=0.5
 )
 
 #%%
