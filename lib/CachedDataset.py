@@ -170,9 +170,21 @@ class PromptUtil:
         )
 
     @staticmethod
-    def add_syntax_to_prompt_func(prompt_obj):
-        B_INST, E_INST = "[INST]", "[/INST]"
-        B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+    def add_syntax_to_prompt_func(prompt_obj, version="Llama3"):
+        if version == "Llama2":
+            B_INST, E_INST = "[INST]", "[/INST]"
+            B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
+        elif version == "Llama3":
+            B_INST, E_INST = (
+                "<|begin_of_text|>",
+                "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n",
+            )
+            B_SYS, E_SYS = (
+                "<|start_header_id|>system<|end_header_id|>\n",
+                "<|eot_id|><|start_header_id|>user<|end_header_id|>\n",
+            )
+        else:
+            raise ValueError("Invalid version, use 'Llama2' or 'Llama3'")
 
         # Extract the lambda function for user prompts
         user_prompt_func = prompt_obj["user_prompt"]
@@ -227,7 +239,7 @@ class CachedDataset(Dataset):
 
         self.cache_before_sentence = CacheUtil.put_cache_on_device(
             self.cache_before_sentence, sentence_cache_device
-        )
+        )  # TODO: Dont do this, keep it on the GPU, and change later code, that assumes this to be on the CPU
 
     def setup_prompt_tokens(self, prompt_obj):
         syntaxed_prompt_func = PromptUtil.add_syntax_to_prompt_func(prompt_obj)
@@ -238,6 +250,7 @@ class CachedDataset(Dataset):
         ) = PromptUtil.tokenize_prompt_funciton(syntaxed_prompt_func, self.tokenizer)
 
         self.universal_part_ids = universal_part
+        # print(self.tokenizer.decode(self.universal_part_ids))
         self.universal_part_masks = [1] * len(universal_part)
 
         self.sentence_dependent_part_ids_func = sentence_dependent_part
@@ -282,17 +295,17 @@ class CachedDataset(Dataset):
 
         token_list, attention_masks = self.tokens_to_padded_tokens_and_attention_mask(
             token_list
-        )
+        )  # TODO attention_mask = [[1 for token in tokens if token != EOS_token_id else 0] for tokens in token_list]
         self.sentence_attention_mask_list = attention_masks
 
         for sentence_idx, (tokens, activations, attention_mask) in enumerate(
             zip(token_list, activation_list, attention_masks)
         ):
-
-            sys.stdout.write(
-                f"\GPU: {CacheUtil.get_cuda_memory_usage(self.model.device)*100:.2f}% full, Processing sentence {sentence_idx + 1}/{len(token_list)}\r"
-            )
-            sys.stdout.flush()  # Ensure the output is displayed immediately
+            if t.cuda.is_available():
+                sys.stdout.write(
+                    f"\GPU: {CacheUtil.get_cuda_memory_usage(self.model.device)*100:.2f}% full, Processing sentence {sentence_idx + 1}/{len(token_list)}\r"
+                )
+                sys.stdout.flush()  # Ensure the output is displayed immediately
             self.prepare_sentence_cache(tokens, attention_mask)
 
             self.prepare_labels_and_questions(tokens, activations, sentence_idx)
@@ -305,7 +318,9 @@ class CachedDataset(Dataset):
         full_attention_context = self.sentence_dependent_part_ids_func(
             sentence=attention_mask
         )
-        full_attention_maks = [1 if x != 0 else 0 for x in full_attention_context]
+        full_attention_maks = [
+            1 if x != 0 else 0 for x in full_attention_context
+        ]  # TODO: full_attention_context =[1 if token != EOS_token_id else 0 for token in sentence_ids ]
         self.sentence_attentions.append(full_attention_maks)
 
         sentence_ids = t.tensor(sentence_ids).unsqueeze(0)
@@ -378,14 +393,16 @@ class CachedDataset(Dataset):
             self.token_dependent_part_ids_func(
                 token=[self.tokens_to_ask_about[idx]], concept=[self.magic_token_id]
             )
-        ).unsqueeze(0)
+        ).unsqueeze(
+            0
+        )  # TODO: Dont call the funciton every time, call it once at the data preparation stage, and save the tokens in a list
         label_id = self.labels[idx]
 
         complete_mask = (
             self.universal_part_masks
             + self.sentence_attentions[self.datapoint_to_sentence_map[idx]]
             + [1] * question_end_id.shape[-1]
-        )
+        )  # TODO: mayeb also dont compute this one, bus save it in a list at the data preparation stage
         complete_mask = t.tensor(complete_mask, dtype=t.long).unsqueeze(0)
         return complete_cache, question_end_id, label_id, complete_mask
 
@@ -411,7 +428,9 @@ class CachedDataloader(DataLoader):
         batched_question_end_ids = [
             qe_id.to(self.device, non_blocking=True) for qe_id in question_end_ids
         ]
-        batched_question_end_ids = t.cat(batched_question_end_ids, dim=0)
+        batched_question_end_ids = t.cat(
+            batched_question_end_ids, dim=0
+        )  # TODO: look up wich order of batching and putting on device is faster.
         batched_attention_masks = [
             am.to(self.device, non_blocking=True) for am in attention_masks
         ]

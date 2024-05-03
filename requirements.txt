@@ -5,3 +5,4 @@ pandas
 einops
 torchtyping
 jaxtyping
+seaborn
