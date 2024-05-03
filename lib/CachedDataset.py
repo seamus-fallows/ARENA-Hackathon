@@ -217,6 +217,7 @@ class CachedDataset(Dataset):
         threshold: float = 0.5,
         sentence_cache_device: Optional[str] = "cpu",
         seperate_sentence_cache: bool = False,
+        p_threshold: float = None,
     ):
         super().__init__()
         self.seperate_sentence_cache = seperate_sentence_cache
@@ -227,6 +228,7 @@ class CachedDataset(Dataset):
         )[-1]
         self.sentence_cache_device = sentence_cache_device
         self.threshold = threshold
+        self.p_threshold = p_threshold
 
         self.setup_prompt_tokens(prompt_obj)
 
@@ -306,6 +308,14 @@ class CachedDataset(Dataset):
 
             self.prepare_labels_and_questions(tokens, activations, sentence_idx)
 
+        if self.p_threshold is not None:
+            self.above_threshold_indices = [
+                i for i, label in enumerate(self.labels) if label == self.yes_label_id
+            ]
+            self.below_threshold_indices = [
+                i for i, label in enumerate(self.labels) if label == self.no_label_id
+            ]
+
     def prepare_sentence_cache(self, tokens: List[int], attention_mask: List[int]):
         """Prepare cache for a single sentence."""
 
@@ -378,6 +388,12 @@ class CachedDataset(Dataset):
         return output.past_key_values
 
     def __getitem__(self, idx):
+        if self.p_threshold is not None:
+            if np.random.rand() < self.p_threshold:
+                idx = np.random.choice(self.above_threshold_indices)
+            else:
+                idx = np.random.choice(self.below_threshold_indices)
+
         sentence_cache = self.sentence_caches[self.datapoint_to_sentence_map[idx]]
         if self.seperate_sentence_cache:
             complete_cache = CacheUtil.add_caches_along_seq_pos(
