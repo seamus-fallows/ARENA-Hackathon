@@ -56,9 +56,13 @@ class CacheUtil:
 
     @staticmethod
     def get_cuda_memory_usage(device="cuda:0"):
-        allocated = t.cuda.memory_allocated(device)
-        total = t.cuda.get_device_properties(device).total_memory
-        return allocated / total
+        if device.type == 'cuda':
+            allocated = t.cuda.memory_allocated(device)
+            total = t.cuda.get_device_properties(device).total_memory
+            return allocated / total
+        else:
+            # CPU does not have this kind of memory tracking, return a placeholder
+            return 0
 
 
 class PromptUtil:
