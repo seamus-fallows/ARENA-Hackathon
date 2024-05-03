@@ -194,5 +194,8 @@ if __name__ == "__main__":
         cleaned_senence = tokenizer.decode(cleaned_senence)
         print(cleaned_senence)
 # %%
-animal_mask
+len(animals_sentences)
+
+# %%
+
 # %%
