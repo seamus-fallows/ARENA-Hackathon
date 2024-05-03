@@ -31,9 +31,9 @@ dataset = CachedDataset.CachedDataset(
 config = Llama_Leaner.Config()
 config.magic_word = "magic"
 config.loss_coeffs = {"label": 1.0, "kl": 0.2, "entropy": 0.2}
-config.lr = 0.1
-config.batch_size = 10
-config.epochs = 200
+config.lr = 0.2
+config.batch_size = 5
+config.epochs = 10
 dataloader = CachedDataset.CachedDataloader(
     dataset, batch_size=config.batch_size, shuffle=True, device=device
 )
@@ -52,3 +52,4 @@ trainings_logs.plot_losses(tokenizer)
 trainings_logs.plot_top_tokens(tokenizer)
 trainings_logs.plot_loss_tradeoff(tokenizer)
 trainings_logs.plot_final_token_accuracy(tokenizer)
+# %%

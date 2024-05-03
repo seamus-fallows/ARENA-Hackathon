@@ -77,9 +77,7 @@ animals_sentences = [
     "The ram butted heads with another.",
     "The yak grazed on the mountain.",
     "The ape swung from the branch.",
-    "The gull soared over the ocean.",
     "A rat scurried in the alley.",
-    "The rook nested in the tree.",
     "A rabbit hopped in the garden.",
 ]
 
@@ -113,18 +111,18 @@ animals_list = [
     "ram",
     "yak",
     "ape",
-    "gull",
     "rat",
-    "rook",
     "rabbit",
 ]
 
 
 def generate_animal_data(tokenizer):
+    tokenizer.pad_token = tokenizer.eos_token
     animal_tokens = tokenizer.batch_encode_plus(
         [" " + animal for animal in animals_list], return_tensors="pt"
     )["input_ids"]
-    assert animal_tokens.size(1) == 1
+    animal_tokens = animal_tokens[:, -1]
+    print(animal_tokens)
     animal_tokens = animal_tokens.flatten()
 
     sentence_tokens = [tokenizer.encode(sentence) for sentence in animals_sentences]
