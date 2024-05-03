@@ -193,6 +193,3 @@ if __name__ == "__main__":
         cleaned_senence = [token for (token, mask) in zip(sentence, mask) if mask == 1]
         cleaned_senence = tokenizer.decode(cleaned_senence)
         print(cleaned_senence)
-# %%
-animal_mask
-# %%
