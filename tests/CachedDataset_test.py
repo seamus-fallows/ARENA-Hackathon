@@ -111,8 +111,13 @@ if __name__ == "__main__":
 
 
 
-    
-
+#%%
+if __name__ == "__main__":
+    sentences = ["the dog sat in the deep deep fog","the cat sat on the mat"]
+    concept = "animal"
+    model_id = "Meta-Llama-3-8B-Instruct"
+    device = "cuda" if t.cuda.is_available() else "cpu"
+    cachedDataset_test(sentences, concept, model_id, device)
 
 
 
