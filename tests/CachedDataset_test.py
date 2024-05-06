@@ -91,9 +91,7 @@ def cachedDataset_test(sentences, concept, model_id, device):
             distances[i, j] = float(distance)
 
     #take minimum along one dimension
-    print(distances)
     min_distances = t.min(distances, dim=0)
-    print(min_distances.values)
     #take max along final dimension
     max_distance = t.max(min_distances.values)
 
@@ -115,7 +113,7 @@ if __name__ == "__main__":
 if __name__ == "__main__":
     sentences = ["the dog sat in the deep deep fog","the cat sat on the mat"]
     concept = "animal"
-    model_id = "Meta-Llama-3-8B-Instruct"
+    model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
     device = "cuda" if t.cuda.is_available() else "cpu"
     cachedDataset_test(sentences, concept, model_id, device)
 
