@@ -18,7 +18,7 @@ from torch import Tensor
 from dataclasses import dataclass, field
 from tqdm.notebook import tqdm
 from jaxtyping import Int, Float
-from typing import List, Dict
+from typing import list, dict
 from collections import defaultdict
 from torch.utils.data import DataLoader, Dataset
 import datetime

@@ -8,9 +8,9 @@ import torch as t
 
 llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
-# %%
+2  # %%
 experiment_file_path, experiment_new = generate_data.get_experiment_file_path(
-    __file__, 1
+    __file__,
 )
 # %%
 
