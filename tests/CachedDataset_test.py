@@ -22,9 +22,10 @@ def cachedDataset_test(sentences, concept, model_id, device):
     )
 
     prompt_function = CachedDataset.PromptUtil.add_syntax_to_prompt_func(prompt_dict)
-    concept_id = t.tensor(tokenizer.encode(concept))
+    concept_id = t.tensor(tokenizer.encode(concept, return_tensors="pt")[-1])
 
     data = tokenizer.batch_encode_plus(sentences, return_tensors="pt", padding=True).input_ids
+    print(data)
     comparison_logit_set = []
     for sentence in data:
         for token in sentence:
@@ -32,7 +33,8 @@ def cachedDataset_test(sentences, concept, model_id, device):
             prompt = prompt_function(sentence, concept_id, token)
             # make all tensors in the prompt list to string, without trying to decode strings
             str_prompt = [tokenizer.decode(p) if isinstance(p, t.Tensor) else p for p in prompt]
-            token_prompt =[tokenizer.encode(p) if isinstance(p, str) else p for p in str_prompt]
+            token_prompt =[tokenizer.encode(p, add_special_tokens=False) if isinstance(p, str) else p for p in str_prompt]
+            print(token_prompt)
             token_prompt = [item for sublist in token_prompt for item in sublist]
             attention_mask = t.ones(len(token_prompt), device=device)
             attention_mask[token_prompt == tokenizer.pad_token_id] = 0
@@ -63,7 +65,9 @@ def cachedDataset_test(sentences, concept, model_id, device):
     dataloader = CachedDataset.CachedDataloader(
     dataset, batch_size=config.batch_size, shuffle=True, device=device
     )
-    magical_token_vector = t.ones(tokenizer.vocab_size, device=device) * - t.inf
+    magical_token_vector = t.ones(model.config.vocab_size, device=device) * - t.inf
+    print("Vocabulary size:", model.config.vocab_size)
+    print("Concept ID:", concept_id)
     magical_token_vector[concept_id] = 1.0
     training = Llama_Leaner.Training(config, model, tokenizer)
     training.magic_token_vector = magical_token_vector
@@ -89,7 +93,7 @@ def cachedDataset_test(sentences, concept, model_id, device):
         for j, tensor2 in enumerate(comparison_logit_set):
             distance = t.mean((tensor1.cpu() - tensor2.cpu())**2).detach().numpy()
             distances[i, j] = float(distance)
-
+    print(distances.shape)
     #take minimum along one dimension
     min_distances = t.min(distances, dim=0)
     #take max along final dimension
@@ -112,7 +116,7 @@ if __name__ == "__main__":
 #%%
 if __name__ == "__main__":
     sentences = ["the dog sat in the deep deep fog","the cat sat on the mat"]
-    concept = "animal"
+    concept = " animal"
     model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
     device = "cuda" if t.cuda.is_available() else "cpu"
     cachedDataset_test(sentences, concept, model_id, device)
