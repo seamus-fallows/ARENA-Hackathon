@@ -69,12 +69,29 @@ def generate_data_tokens(
 
 
 class TextDataGenerator:
-    def __init__(self, sentences, words_to_label, tokenizer):
-        self.sentences = sentences
-        self.words_to_label = words_to_label
+    def __init__(self, sentences=None, words_to_label=None, tokenizer=None, file_path=None):
+        if file_path is not None:
+            sentence_path = os.path.join(file_path, "sentences.txt")
+            word_path = os.path.join(file_path, "labled_words.txt")
+            self.sentences = self.load_sentences(sentence_path)
+            self.words_to_label = self.load_words(word_path)
+        else:
+            self.sentences = sentences
+            self.words_to_label = words_to_label
+
         self.tokenizer = tokenizer
         self.appends_eos = len(tokenizer.encode("a")) == 2
         self._check_word_tokenization()
+
+    def load_sentences(self, sentence_path):
+        with open(sentence_path, "r") as file:
+            sentences = [sentence.strip() for sentence in file.readlines()]
+        return sentences
+
+    def load_words(self, word_path):
+        with open(word_path, "r") as file:
+            words = [word.strip() for word in file.readlines()]
+        return words
 
     def _check_word_tokenization(self):
         word_tokens = [self.tokenizer.encode(word) for word in self.words_to_label]

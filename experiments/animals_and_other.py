@@ -10,7 +10,7 @@ llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
 experiment_file_path, experiment_new = generate_data.get_experiment_file_path(
-    __file__, 2
+    __file__, 1
 )
 # %%
 
@@ -32,7 +32,7 @@ if experiment_new:
         no_answer="0",
     )
 
-    data_path = "../data/text_data/animals"
+    data_path = "../data/text_data/animals_and_other"
     datagenerator = generate_data.TextDataGenerator(
         file_path=data_path, tokenizer=tokenizer
     )
