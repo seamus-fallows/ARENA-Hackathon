@@ -8,6 +8,7 @@ from torch import Tensor
 from jaxtyping import Int, Float
 from typing import List, Dict
 from torch import Tensor
+import random
 import os
 import os
 
@@ -23,9 +24,10 @@ def get_experiment_file_path(experiment_file: str, number: int) -> str:
 
     # Create a subfolder for the experiment number
     experiment_number_folder = os.path.join(experiment_folder, f"experiment_{number}")
+    experiment_new = not os.path.exists(experiment_number_folder)
     os.makedirs(experiment_number_folder, exist_ok=True)
 
-    return experiment_number_folder
+    return experiment_number_folder, experiment_new
 
 
 def generate_data_tokens(
@@ -66,147 +68,117 @@ def generate_data_tokens(
     return data, concept_token_mask
 
 
-animals_sentences = [
-    "The cat chased the mouse.",
-    "A dog barked at the mailman.",
-    "The bird sang a sweet song.",
-    "A frog leaped into the pond.",
-    "The duck swam in the lake.",
-    "A bear hibernated in the cave.",
-    "The lion roared in the savanna.",
-    "A deer grazed in the meadow.",
-    "The owl hooted in the night.",
-    "A fox prowled in the forest.",
-    "The hen laid eggs in the coop.",
-    "A bat flew through the sky.",
-    "The seal basked on the rock.",
-    "A cow grazed in the pasture.",
-    "The lamb frolicked in the field.",
-    "A crab scuttled on the beach.",
-    "The mole dug a tunnel underground.",
-    "A hawk soared above the trees.",
-    "The shrimp swam in the aquarium.",
-    "A snake slithered in the grass.",
-    "The goat climbed the steep hill.",
-    "A moth fluttered near the light.",
-    "The pig rolled in the mud.",
-    "A crow perched on the fence.",
-    "A wolf howled at the moon.",
-    "The ram butted heads with another.",
-    "The yak grazed on the mountain.",
-    "The ape swung from the branch.",
-    "The gull soared over the ocean.",
-    "A rat scurried in the alley.",
-    "The rook nested in the tree.",
-    "A rabbit hopped in the garden.",
-]
+class TextDataGenerator:
+    def __init__(self, sentences, words_to_label, tokenizer):
+        self.sentences = sentences
+        self.words_to_label = words_to_label
+        self.tokenizer = tokenizer
+        self.appends_eos = len(tokenizer.encode("a")) == 2
+        self._check_word_tokenization()
 
-animals_list = [
-    "cat",
-    "mouse",
-    "dog",
-    "bird",
-    "frog",
-    "duck",
-    "bear",
-    "lion",
-    "deer",
-    "owl",
-    "fox",
-    "hen",
-    "bat",
-    "seal",
-    "cow",
-    "lamb",
-    "crab",
-    "mole",
-    "hawk",
-    "shrimp",
-    "snake",
-    "goat",
-    "moth",
-    "pig",
-    "crow",
-    "wolf",
-    "ram",
-    "yak",
-    "ape",
-    "gull",
-    "rat",
-    "rook",
-    "rabbit",
-]
+    def _check_word_tokenization(self):
+        word_tokens = [self.tokenizer.encode(word) for word in self.words_to_label]
+        word_tokens_spaced = [
+            self.tokenizer.encode(" " + word) for word in self.words_to_label
+        ]
+        if self.appends_eos:
+            word_tokens = [word[1:] for word in word_tokens]
+            word_tokens_spaced = [word[1:] for word in word_tokens_spaced]
+        self.word_tokens = []
+        for word, word_spaced in zip(word_tokens, word_tokens_spaced):
+            if len(word) != 1 and len(word_spaced) != 1:
+                raise ValueError(
+                    f"Word tokenization failed for word {self.tokenizer.decode(word)}"
+                )
+            if len(word) == 1:
+                self.word_tokens.append(word[0])
+            if len(word_spaced) == 1:
+                self.word_tokens.append(word_spaced[0])
 
+    def generate_data(self):
+        sentence_tokens = [
+            self.tokenizer.encode(sentence) for sentence in self.sentences
+        ]
+        if self.appends_eos:
+            sentence_tokens = [sentence[1:] for sentence in sentence_tokens]
 
-def generate_animal_data(tokenizer):
-    animal_tokens = tokenizer.batch_encode_plus(
-        [" " + animal for animal in animals_list], return_tensors="pt"
-    )["input_ids"]
-    assert animal_tokens.size(1) == 1
-    animal_tokens = animal_tokens.flatten()
+        word_mask = [
+            [float(token in self.word_tokens) for token in sentence]
+            for sentence in sentence_tokens
+        ]
+        return sentence_tokens, word_mask
 
-    sentence_tokens = [tokenizer.encode(sentence) for sentence in animals_sentences]
+    def print_sentences_with_words(self):
+        sentence_tokens, word_mask = self.generate_data()
+        print("Sentences with words:")
+        print("##########################")
+        random_indices = random.sample(
+            range(len(sentence_tokens)), min(10, len(sentence_tokens))
+        )
+        for index in random_indices:
+            sentence = sentence_tokens[index]
+            cleaned_sentence = self.tokenizer.decode(sentence)
+            print(cleaned_sentence)
 
-    animal_mask = [
-        [float(token in animal_tokens) for token in sentence]
-        for sentence in sentence_tokens
-    ]
-    return sentence_tokens, animal_mask
+    def print_sentences_without_words(self):
+        sentence_tokens, word_mask = self.generate_data()
+        print("Sentences without words:")
+        print("##########################")
+        random_indices = random.sample(
+            range(len(sentence_tokens)), min(10, len(sentence_tokens))
+        )
+        for index in random_indices:
+            sentence = sentence_tokens[index]
+            mask = word_mask[index]
+            cleaned_sentence = [
+                token for (token, mask) in zip(sentence, mask) if mask == 0
+            ]
+            cleaned_sentence = self.tokenizer.decode(cleaned_sentence)
+            print(cleaned_sentence)
+
+    def print_only_words(self):
+        sentence_tokens, word_mask = self.generate_data()
+        print("Only words:")
+        print("##########################")
+        random_indices = random.sample(
+            range(len(sentence_tokens)), min(10, len(sentence_tokens))
+        )
+        for index in random_indices:
+            sentence = sentence_tokens[index]
+            mask = word_mask[index]
+            cleaned_sentence = [
+                token for (token, mask) in zip(sentence, mask) if mask == 1
+            ]
+            cleaned_sentence = self.tokenizer.decode(cleaned_sentence)
+            print(cleaned_sentence)
 
 
+# %%
+if __name__ == "__main__":
+    file_path = "../data/text_data/animals"
+    sentence_path = os.path.join(file_path, "sentences.txt")
+    word_path = os.path.join(file_path, "labled_words.txt")
+
+    sentences = [sentence.strip() for sentence in open(sentence_path, "r").readlines()]
+    animals_list = [animal.strip() for animal in open(word_path, "r").readlines()]
+
+    tokenizer = AutoTokenizer.from_pretrained("NousResearch/Meta-Llama-3-8B")
+    animal_data_generator = TextDataGenerator(sentences, animals_list, tokenizer)
 # %%
 # Test
 if __name__ == "__main__":
 
-    llama_token = "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"
-    device = t.device("cuda:0" if t.cuda.is_available() else "cpu")
-    n_param = 7
-    tokenizer = AutoTokenizer.from_pretrained(
-        f"meta-llama/Llama-2-{n_param}b-chat-hf",
-        token=llama_token,
-        use_fast=True,
-        add_bos_token=False,
-        add_prefix_space=False,
-        add_special_tokens=False,
-    )
-    tokenizer.pad_token = tokenizer.eos_token
+    animal_data_generator.print_sentences_with_words()
+    print("\n\n")
+    animal_data_generator.print_sentences_without_words()
+    print("\n\n")
+    animal_data_generator.print_only_words()
+    print("\n\n")
 
-    vocab_size = tokenizer.vocab_size
-    numeral_tokens = tokenizer.batch_encode_plus(
-        [str(i) for i in range(10)], return_tensors="pt"
-    )["input_ids"][:, 1].flatten()
-    data_token_ids, labels = generate_data_tokens(
-        n_data=10, seq_len=10, concept_tokens=numeral_tokens, vocab_size=vocab_size
-    )
-    print(labels)
-    print(data_token_ids)
 
-    for i in range(data_token_ids.size(0)):
-        sequence = data_token_ids[i].tolist()
-        decoded_sequence = tokenizer.decode(sequence)
-        print(decoded_sequence)
 # %%
 if __name__ == "__main__":
+    for token in animal_data_generator.word_tokens:
+        print(tokenizer.decode([token]))
 
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    import torch as t
-
-    tokenizer = AutoTokenizer.from_pretrained("distilgpt2")
-    sentence_tokens, animal_mask = generate_animal_data(tokenizer)
-    print("sentences with animals:")
-    print("##########################")
-    for sentence, mask in zip(sentence_tokens, animal_mask):
-        cleaned_senence = tokenizer.decode(sentence)
-        print(cleaned_senence)
-    print("sentences without animals:")
-    print("##########################")
-
-    for sentence, mask in zip(sentence_tokens, animal_mask):
-        cleaned_senence = [token for (token, mask) in zip(sentence, mask) if mask == 0]
-        cleaned_senence = tokenizer.decode(cleaned_senence)
-        print(cleaned_senence)
-    print("Only animals:")
-    print("##########################")
-    for sentence, mask in zip(sentence_tokens, animal_mask):
-        cleaned_senence = [token for (token, mask) in zip(sentence, mask) if mask == 1]
-        cleaned_senence = tokenizer.decode(cleaned_senence)
+# %%
