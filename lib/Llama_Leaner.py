@@ -223,6 +223,7 @@ class Training:
         self.vocab_size = (
             model.config.vocab_size
         )  # Need to check this is the same for all models
+        print(self.vocab_size)
         self.tokenizer = tokenizer
         self.intialise_random_token_vector()
 
@@ -232,7 +233,6 @@ class Training:
 
         if len(tokenizer.encode("a")) ==2:
             tokenized_magic_word = tokenized_magic_word[1:]
-        #    tokenized_magic_word = tokenized_magic_word[1:]
 
         assert len(tokenized_magic_word) == 1, "Magic word must be a single token"
         self.magic_ids = tokenized_magic_word[-1]
