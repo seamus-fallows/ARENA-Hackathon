@@ -8,6 +8,24 @@ from torch import Tensor
 from jaxtyping import Int, Float
 from typing import List, Dict
 from torch import Tensor
+import os
+import os
+
+
+def get_experiment_file_path(experiment_file: str, number: int) -> str:
+    current_dir = os.path.dirname(os.path.abspath(experiment_file))
+    name_of_current_experiment = os.path.splitext(os.path.basename(experiment_file))[0]
+    data_saving_folder = os.path.join(current_dir, "..", "data", "experiment_results")
+
+    # Create folder for the experiment if it does not exist
+    experiment_folder = os.path.join(data_saving_folder, name_of_current_experiment)
+    os.makedirs(experiment_folder, exist_ok=True)
+
+    # Create a subfolder for the experiment number
+    experiment_number_folder = os.path.join(experiment_folder, f"experiment_{number}")
+    os.makedirs(experiment_number_folder, exist_ok=True)
+
+    return experiment_number_folder
 
 
 def generate_data_tokens(

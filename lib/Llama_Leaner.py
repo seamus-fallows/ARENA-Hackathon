@@ -8,6 +8,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
 )
+import pickle
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 import einops
 import matplotlib.pyplot as plt
@@ -85,7 +86,13 @@ class Logs:
         self.final_token_accuracy = final_token_accuracy
 
     def save(self, path: str) -> None:
-        pass
+        with open(path, "wb") as file:
+            pickle.dump(self, file)
+
+    @staticmethod
+    def load(path: str) -> "Logs":
+        with open(path, "rb") as file:
+            return pickle.load(file)
 
     def plot_losses(self, tokenizer, figsize: Tuple[int] = (10, 5)) -> None:
         plt.figure(figsize=figsize)
@@ -230,7 +237,7 @@ class Training:
         self.step = 0
         tokenized_magic_word = self.tokenizer.encode(config.magic_word)
 
-        if len(tokenizer.encode("a")) ==2:
+        if len(tokenizer.encode("a")) == 2:
             tokenized_magic_word = tokenized_magic_word[1:]
         #    tokenized_magic_word = tokenized_magic_word[1:]
 
@@ -369,7 +376,6 @@ class Training:
             "entropy_loss": entropy_loss.item(),
         }
 
-
         return loss_log, final_token_acc
 
     def log_top_tokens(
@@ -489,8 +495,6 @@ class Training:
         # add maximum probability to the log of each id
         for id in self.top_token_log.keys():
             self.top_token_log[id]["max_prob"] = max(self.top_token_log[id]["prob"])
-        
-    
 
         self.optimizer.zero_grad()
         t.cuda.empty_cache()

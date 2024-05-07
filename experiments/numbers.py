@@ -9,6 +9,9 @@ import torch as t
 llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
+experiment_file_path = generate_data.get_experiment_file_path(__file__,1)
+
+# %%
 
 tokenizer = AutoTokenizer.from_pretrained("NousResearch/Meta-Llama-3-8B")
 model = AutoModelForCausalLM.from_pretrained("NousResearch/Meta-Llama-3-8B").to(device)
@@ -57,9 +60,6 @@ prompt = dict(
 )
 dataset = CachedDataset.CachedDataset(
     model, tokenizer, data_token_ids, labels, prompt, sentence_cache_device=device
-)
-# %%
-tokenizer.encode("1")
 
 # %%
 
@@ -83,37 +83,21 @@ solution = [
 ]
 
 # %%
-(caches,tokens,target_tokens,attention_masks,) = dataset[0]
-magic_token_pos = tokens == tokenizer.encode(config.magic_word)[-1]
-#print(magic_token_pos)
-embeddings = training.create_modified_embeddings(tokens, magic_token_pos)
-optput  = model(
-    inputs_embeds=embeddings.to(device),
-    past_key_values=caches,
-    attention_mask=attention_masks.to(device),
-    return_dict=True,
-)
+#check wether there is a training_logs file in the experiment folder
+file_to_check = experiment_file_path + "/training_logs.pkl"
+if not os.path.isfile(file_to_check):
+    trainings_logs = training.train(
+        dataloader, specified_tokens=solution, n_top_tracked_tokens=5
+    )
+    trainings_logs.save(file_to_check)
+else:
+    trainings_logs = Llama_Leaner.TrainingLogs.load(file_to_check)
 
-logits = optput.logits
-# print the top 5 tokens
-top_tokens = logits[0, -1].topk(5).indices
-for token in top_tokens:
-    print(tokenizer.decode(token.item()))
-# %%
-trainings_logs = training.train(
-    dataloader, specified_tokens=solution, n_top_tracked_tokens=5
-)
-trainings_logs.plot_losses(tokenizer)
-trainings_logs.plot_top_tokens(tokenizer)
-trainings_logs.plot_loss_tradeoff(tokenizer)
-trainings_logs.plot_final_token_accuracy(tokenizer)
+
+
 # %%
 trainings_logs.plot_losses(tokenizer)
 trainings_logs.plot_top_tokens(tokenizer)
 trainings_logs.plot_loss_tradeoff(tokenizer)
 trainings_logs.plot_final_token_accuracy(tokenizer)
-# %%
-trainings_logs.top_tokens
-# %%
-trainings_logs.losses
 # %%
