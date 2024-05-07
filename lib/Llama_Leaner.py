@@ -8,6 +8,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
 )
+import pickle
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 import einops
 import matplotlib.pyplot as plt
@@ -85,9 +86,17 @@ class Logs:
         self.final_token_accuracy = final_token_accuracy
 
     def save(self, path: str) -> None:
-        pass
+        with open(path, "wb") as file:
+            pickle.dump(self, file)
 
-    def plot_losses(self, tokenizer, figsize: Tuple[int] = (10, 5)) -> None:
+    @staticmethod
+    def load(path: str) -> "Logs":
+        with open(path, "rb") as file:
+            return pickle.load(file)
+
+    def plot_losses(
+        self, tokenizer, figsize: Tuple[int] = (10, 5), saving_folder_path=None
+    ) -> None:
         plt.figure(figsize=figsize)
         plt.plot(self.losses["loss"], label="Total Loss")
         plt.plot(self.losses["label_loss"], label="label Loss")
@@ -105,6 +114,9 @@ class Logs:
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
+        plt.tight_layout()
+        if saving_folder_path:
+            plt.savefig(f"{saving_folder_path}/loss_plot.png")
         plt.show()
 
     def get_plot_keys(self, n_plotted_tokens):
@@ -116,7 +128,9 @@ class Logs:
         plot_keys += self.specified_tokens.keys()
         return plot_keys
 
-    def plot_top_tokens(self, tokenizer, n_plotted_tokens: int = 10) -> None:
+    def plot_top_tokens(
+        self, tokenizer, n_plotted_tokens: int = 10, saving_folder_path=None
+    ) -> None:
         plt.figure(figsize=(10, 5))
         # make a color list of the length of n_plots
         colors = plt.cm.rainbow(
@@ -165,13 +179,20 @@ class Logs:
                 linestyle=linestyle,
             )
 
-        plt.xlabel("Epoch")
+        plt.xlabel("Batch")
         plt.ylabel("Probability")
         plt.legend()
+        plt.tight_layout()
+        if saving_folder_path:
+            plt.savefig(f"{saving_folder_path}/top_tokens_plot.png")
         plt.show()
 
     def plot_loss_tradeoff(
-        self, tokenizer, n_plotted_tokens: int = 10, figsize: Tuple[int] = (3, 3)
+        self,
+        tokenizer,
+        n_plotted_tokens: int = 10,
+        figsize: Tuple[int] = (6, 3),
+        saving_folder_path=None,
     ) -> None:
         plot_keys = self.get_plot_keys(n_plotted_tokens)
         plot_keys = list(dict.fromkeys(plot_keys))
@@ -197,12 +218,17 @@ class Logs:
             self.losses["label_loss"], self.losses["kl_loss"], label="loss tradeoff"
         )
         plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+        plt.tight_layout()
         plt.xlabel("label loss")
         # plt.xscale("log")
         plt.ylabel("kl loss")
+        if saving_folder_path:
+            plt.savefig(f"{saving_folder_path}/loss_tradeoff_plot.png")
         plt.show()
 
-    def plot_final_token_accuracy(self, tokenizer, figsize: Tuple[int] = (10, 5)):
+    def plot_final_token_accuracy(
+        self, tokenizer, figsize: Tuple[int] = (10, 5), saving_folder_path=None
+    ) -> None:
         plt.figure(figsize=figsize)
         for id in self.final_token_accuracy.keys():
             plt.plot(
@@ -212,6 +238,10 @@ class Logs:
         plt.xlabel("step")
         plt.ylabel("Accuracy")
         plt.legend()
+        # making the legend part of the saved picture
+        plt.tight_layout()
+        if saving_folder_path:
+            plt.savefig(f"{saving_folder_path}/final_token_accuracy_plot.png")
         plt.show()
 
 
@@ -230,7 +260,7 @@ class Training:
         self.step = 0
         tokenized_magic_word = self.tokenizer.encode(config.magic_word)
 
-        if len(tokenizer.encode("a")) ==2:
+        if len(tokenizer.encode("a")) == 2:
             tokenized_magic_word = tokenized_magic_word[1:]
         #    tokenized_magic_word = tokenized_magic_word[1:]
 
@@ -369,7 +399,6 @@ class Training:
             "entropy_loss": entropy_loss.item(),
         }
 
-
         return loss_log, final_token_acc
 
     def log_top_tokens(
@@ -489,8 +518,6 @@ class Training:
         # add maximum probability to the log of each id
         for id in self.top_token_log.keys():
             self.top_token_log[id]["max_prob"] = max(self.top_token_log[id]["prob"])
-        
-    
 
         self.optimizer.zero_grad()
         t.cuda.empty_cache()
