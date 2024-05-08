@@ -56,7 +56,7 @@ class CacheUtil:
 
     @staticmethod
     def get_cuda_memory_usage(device="cuda:0"):
-        if device.type == 'cuda':
+        if device.type == "cuda":
             allocated = t.cuda.memory_allocated(device)
             total = t.cuda.get_device_properties(device).total_memory
             return allocated / total
@@ -266,17 +266,13 @@ class CachedDataset(Dataset):
         )[-1]
 
     def tokens_to_padded_tokens_and_attention_mask(self, token_list: List[List[int]]):
-        padded_token_list, attention_masks = [], []
-        max_len = max(len(tokens) for tokens in token_list)
-        for tokens in token_list:
-            tokens = list(tokens)
-            attention_mask = [1] * (len(tokens))
-            attention_mask += [0] * (max_len - len(tokens))
-            tokens += [self.tokenizer.eos_token_id] * (max_len - len(tokens))
-            attention_masks.append(attention_mask)
-            padded_token_list.append(tokens)
-            assert len(tokens) == len(attention_mask) == max_len
-        return padded_token_list, attention_masks
+        tensors = [t.tensor(seq) for seq in token_list]
+        # Pad the tensors to the same length
+        padded_tensor = t.nn.utils.rnn.pad_sequence(
+            tensors, batch_first=True, padding_value=self.tokenizer.eos_token_id
+        )
+        attention_mask = (padded_tensor != self.tokenizer.eos_token_id).long()
+        return padded_tensor, attention_mask
 
     def prepare_data(
         self, token_list: List[List[int]], activation_list: List[List[float]]
