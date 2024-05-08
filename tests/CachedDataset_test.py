@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import torch as t
 from lib import Llama_Leaner, generate_data, CachedDataset
 import seaborn as sns
+from tqdm import tqdm
 
 def cachedDataset_test(sentences, concept, model_id, device):
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -22,7 +23,7 @@ def cachedDataset_test(sentences, concept, model_id, device):
     )
 
     prompt_function = CachedDataset.PromptUtil.add_syntax_to_prompt_func(prompt_dict)
-    concept_id = t.tensor(tokenizer.encode(concept, return_tensors="pt")[-1])
+    concept_id = t.tensor(tokenizer.encode(concept, add_special_tokens=False))
 
     data = tokenizer.batch_encode_plus(sentences, return_tensors="pt", padding=True).input_ids
     print(data)
@@ -57,6 +58,7 @@ def cachedDataset_test(sentences, concept, model_id, device):
     config = Llama_Leaner.Config()
     config.magic_word = "magic"
     config.batch_size = 1
+    config.epochs = 1
 
 
     dataset = CachedDataset.CachedDataset(
@@ -65,33 +67,27 @@ def cachedDataset_test(sentences, concept, model_id, device):
     dataloader = CachedDataset.CachedDataloader(
     dataset, batch_size=config.batch_size, shuffle=True, device=device
     )
-    magical_token_vector = t.ones(model.config.vocab_size, device=device) * - t.inf
+    magical_token_vector = t.ones(model.config.vocab_size, device=device) * (- t.inf)
     print("Vocabulary size:", model.config.vocab_size)
     print("Concept ID:", concept_id)
     magical_token_vector[concept_id] = 1.0
-    training = Llama_Leaner.Training(config, model, tokenizer)
+    training = Llama_Leaner.Training(config, model, tokenizer, test_mode=True)
     training.magic_token_vector = magical_token_vector
+
+    logs = training.train(dataloader, n_top_tracked_tokens=1, specified_tokens=[concept_id])
     logit_set = []
-    for (caches,tokens,target_tokens,attention_masks,) in dataloader:
-        magic_token_pos = tokens == tokenizer.encode(config.magic_word)[-1]
-        #print(magic_token_pos)
-        embeddings = training.create_modified_embeddings(tokens, magic_token_pos)
-        optput  = model(
-            inputs_embeds=embeddings,
-            past_key_values=caches,
-            attention_mask=attention_masks,
-            return_dict=True,
-        )
-
-        logit_set.append(optput.logits[0,-1, :])
-
+    print(len(logs.losses["output_logits"]))
+    for logits in logs.losses["output_logits"]:
+        logit_set.append(logits[0,-1, :])
+    print(comparison_logit_set[0].shape)
+    print(logit_set[0].shape)
     num_tensors1 = len(logit_set)
     num_tensors2 = len(comparison_logit_set)
 
     distances = t.zeros((num_tensors1, num_tensors2))
-    for i, tensor1 in enumerate(logit_set):
+    for i, tensor1 in tqdm(enumerate(logit_set)):
         for j, tensor2 in enumerate(comparison_logit_set):
-            distance = t.mean((tensor1.cpu() - tensor2.cpu())**2).detach().numpy()
+            distance = t.mean((tensor1.to(device) - tensor2.to(device))**2).detach().cpu().numpy()
             distances[i, j] = float(distance)
     print(distances.shape)
     #take minimum along one dimension

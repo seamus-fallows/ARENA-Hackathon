@@ -246,14 +246,14 @@ class Logs:
 
 
 class Training:
-    def __init__(self, config: Config, model, tokenizer):
+    def __init__(self, config: Config, model, tokenizer, test_mode=False):
         self.config = config
         self.device = model.device
         self.model = model
         self.vocab_size = (
             model.config.vocab_size
         )  # Need to check this is the same for all models
-        print(self.vocab_size)
+        self.test_mode = test_mode
         self.tokenizer = tokenizer
         self.intialise_random_token_vector()
 
@@ -398,6 +398,9 @@ class Training:
             "kl_loss": kl_loss.item(),
             "entropy_loss": entropy_loss.item(),
         }
+        if self.test_mode:
+            loss_log["output_logits"] = output_logits.detach().cpu()
+
 
         return loss_log, final_token_acc
 
