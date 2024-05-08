@@ -23,10 +23,9 @@ def cachedDataset_test(sentences, concept, model_id, device):
     )
 
     prompt_function = CachedDataset.PromptUtil.add_syntax_to_prompt_func(prompt_dict)
-    concept_id = t.tensor(tokenizer.encode(concept, add_special_tokens=False))
+    concept_id = t.tensor(tokenizer.encode(concept,add_special_tokens=False))
 
-    data = tokenizer.batch_encode_plus(sentences, return_tensors="pt", padding=True).input_ids
-    print(data)
+    data = tokenizer.batch_encode_plus(sentences, return_tensors="pt", padding=True, add_special_tokens=False).input_ids
     comparison_logit_set = []
     for sentence in data:
         for token in sentence:
@@ -65,7 +64,7 @@ def cachedDataset_test(sentences, concept, model_id, device):
     model, tokenizer, data, labels, prompt_dict, sentence_cache_device=device
     )
     dataloader = CachedDataset.CachedDataloader(
-    dataset, batch_size=config.batch_size, shuffle=True, device=device
+    dataset, batch_size=config.batch_size, shuffle=False, device=device
     )
     magical_token_vector = t.ones(model.config.vocab_size, device=device) * (- t.inf)
     print("Vocabulary size:", model.config.vocab_size)
@@ -76,11 +75,8 @@ def cachedDataset_test(sentences, concept, model_id, device):
 
     logs = training.train(dataloader, n_top_tracked_tokens=1, specified_tokens=[concept_id])
     logit_set = []
-    print(len(logs.losses["output_logits"]))
     for logits in logs.losses["output_logits"]:
         logit_set.append(logits[0,-1, :])
-    print(comparison_logit_set[0].shape)
-    print(logit_set[0].shape)
     num_tensors1 = len(logit_set)
     num_tensors2 = len(comparison_logit_set)
 
@@ -89,7 +85,9 @@ def cachedDataset_test(sentences, concept, model_id, device):
         for j, tensor2 in enumerate(comparison_logit_set):
             distance = t.mean((tensor1.to(device) - tensor2.to(device))**2).detach().cpu().numpy()
             distances[i, j] = float(distance)
-    print(distances.shape)
+
+    print("Distances shape:", distances.shape)
+    print("Distances:", distances)
     #take minimum along one dimension
     min_distances = t.min(distances, dim=0)
     #take max along final dimension
