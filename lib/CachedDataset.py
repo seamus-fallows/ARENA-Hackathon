@@ -360,6 +360,7 @@ class CachedDataset(Dataset):
         self, tokens: List[int], activations: List[float], sentence_idx: int
     ):
         """Prepare labels and question end IDs for each token in a sentence."""
+        # print(f"length of tokens{len(tokens)}, length of activation:{len}
         for token, activation in zip(tokens, activations):
             label_id = (
                 self.yes_label_id if activation > self.threshold else self.no_label_id
