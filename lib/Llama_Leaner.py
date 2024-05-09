@@ -95,29 +95,53 @@ class Logs:
             return pickle.load(file)
 
     def plot_losses(
-        self, tokenizer, figsize: Tuple[int] = (10, 5), saving_folder_path=None
+        self, tokenizer, figsize: Tuple[int, int] = (10, 5),
+        saving_folder_path: Optional[str] = None, 
+        plot_total_loss: bool = True,
+        plot_label_loss: bool = True, 
+        plot_entropy_loss: bool = True,
+        plot_kl_loss: bool = True, 
+        plot_specified_tokens: bool = True
     ) -> None:
+        """Plots various loss components based on the configuration given.
+        
+        Parameters:
+        - tokenizer: Tokenizer instance used for decoding token ids.
+        - figsize: Figure size for the plot.
+        - saving_folder_path: If specified, saves the plot to the given folder path.
+        - plot_total_loss, plot_label_loss, plot_entropy_loss, plot_kl_loss: Flags to control plotting of each loss component.
+        - plot_specified_tokens: Flag to control plotting of losses for specified tokens.
+        """
         plt.figure(figsize=figsize)
-        plt.plot(self.losses["loss"], label="Total Loss")
-        plt.plot(self.losses["label_loss"], label="label Loss")
-        plt.plot(self.losses["entropy_loss"], label="Entropy Loss")
-        plt.plot(self.losses["kl_loss"], label="KL Loss")
-        for id in self.specified_tokens.keys():
-            steps = self.specified_tokens[id]["steps"]
-            total_loss = np.full_like(steps, self.specified_tokens[id]["total_loss"])
-            plt.plot(
-                steps,
-                total_loss,
-                label=f"{tokenizer.decode([id])} loss",
-                linestyle="--",
-            )
+        if plot_total_loss and 'loss' in self.losses:
+            plt.plot(self.losses['loss'], label='Total Loss')
+        if plot_label_loss and 'label_loss' in self.losses:
+            plt.plot(self.losses['label_loss'], label='Label Loss')
+        if plot_entropy_loss and 'entropy_loss' in self.losses:
+            plt.plot(self.losses['entropy_loss'], label='Entropy Loss')
+        if plot_kl_loss and 'kl_loss' in self.losses:
+            plt.plot(self.losses['kl_loss'], label='KL Loss')
+        
+        if plot_specified_tokens:
+            for id, data in self.specified_tokens.items():
+                steps = data['steps']
+                total_loss = np.full_like(steps, data['total_loss'])
+                plt.plot(
+                    steps,
+                    total_loss,
+                    label=f"{tokenizer.decode([id])} loss",
+                    linestyle="--"
+                )
+        
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
         plt.tight_layout()
+        
         if saving_folder_path:
             plt.savefig(f"{saving_folder_path}/loss_plot.png")
         plt.show()
+
 
     def get_plot_keys(self, n_plotted_tokens):
         plot_keys = sorted(
@@ -191,21 +215,25 @@ class Logs:
         self,
         tokenizer,
         n_plotted_tokens: int = 10,
-        figsize: Tuple[int] = (6, 3),
-        saving_folder_path=None,
+        figsize: Tuple[int, int] = (6, 3),
+        saving_folder_path: Optional[str] = None,
+        plot_tradeoff_line: bool = True
     ) -> None:
         plot_keys = self.get_plot_keys(n_plotted_tokens)
-        plot_keys = list(dict.fromkeys(plot_keys))
+        plot_keys = list(dict.fromkeys(plot_keys))  # Remove duplicates
         colors = plt.cm.rainbow(np.linspace(0, 1, len(plot_keys)))
 
         combined_log = {**self.top_tokens, **self.specified_tokens}
         plt.figure(figsize=figsize)
+
+        if plot_tradeoff_line:
+            plt.plot(
+                self.losses["label_loss"], self.losses["kl_loss"], label="loss tradeoff"
+            )
+
         for id, color in zip(plot_keys, colors):
-            if "label_loss" in combined_log[id].keys():
-                if id in self.specified_tokens.keys():
-                    marker = "*"
-                else:
-                    marker = "o"
+            if "label_loss" in combined_log[id]:
+                marker = "*" if id in self.specified_tokens else "o"
                 plt.scatter(
                     combined_log[id]["label_loss"],
                     combined_log[id]["kl_loss"],
@@ -213,17 +241,15 @@ class Logs:
                     marker=marker,
                     color=color,
                 )
-        # legend outside of plot
-        plt.plot(
-            self.losses["label_loss"], self.losses["kl_loss"], label="loss tradeoff"
-        )
+
         plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
         plt.tight_layout()
         plt.xlabel("label loss")
-        # plt.xscale("log")
         plt.ylabel("kl loss")
+
         if saving_folder_path:
             plt.savefig(f"{saving_folder_path}/loss_tradeoff_plot.png")
+
         plt.show()
 
     def plot_final_token_accuracy(
@@ -330,19 +356,20 @@ class Training:
             return F.kl_div(log_probs_2, probs_1, reduction="batchmean")
 
         final_token_logits = output_logits[:, -1, :]
-        label_loss = F.cross_entropy(final_token_logits, target_tokens)
+        label_loss = self.loss_coeffs["label"] * F.cross_entropy(final_token_logits, target_tokens)
 
-        entropy_loss = entropy_from_logits(magic_token_vector)
+        entropy_loss = self.loss_coeffs["entropy"] * entropy_from_logits(magic_token_vector)
 
         shifted_magic_token_pos = magic_token_pos[:, 1:]
         shifted_output_logits = output_logits[:, :-1, :]
         prediction_on_magic_pos = shifted_output_logits[shifted_magic_token_pos]
 
-        kl_loss = KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
+        kl_loss = self.loss_coeffs["kl"] * KL_div_from_logits(magic_token_vector, prediction_on_magic_pos)
+
         total_loss = (
-            self.loss_coeffs["label"] * label_loss
-            + self.loss_coeffs["kl"] * kl_loss
-            + self.loss_coeffs["entropy"] * entropy_loss
+            label_loss
+            + kl_loss
+            + entropy_loss
         )
 
         return total_loss, label_loss, kl_loss, entropy_loss
