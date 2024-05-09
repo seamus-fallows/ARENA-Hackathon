@@ -10,7 +10,7 @@ llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
 experiment_file_path, experiment_new = generate_data.get_experiment_file_path(
-    __file__, 'test'
+    __file__, 'test2'
 )
 print(experiment_new)
 # %%
@@ -53,10 +53,10 @@ if experiment_new:
 if experiment_new:
     config = Llama_Leaner.Config()
     config.magic_word = "magic"
-    config.loss_coeffs = {"label": 1.0, "kl": 0.2, "entropy": 0.2}
-    config.lr = 0.5
-    config.batch_size = 15
-    config.epochs = 5
+    config.loss_coeffs = {"label": 1.0, "kl": 0.1, "entropy": 0.1}
+    config.lr = 0.25
+    config.batch_size = 10
+    config.epochs = 6
     dataloader = CachedDataset.CachedDataloader(
         dataset, batch_size=config.batch_size, shuffle=True, device=device
     )
@@ -83,7 +83,7 @@ else:
 
 
 # %%
-trainings_logs.plot_losses(tokenizer, saving_folder_path=experiment_file_path)
+trainings_logs.plot_losses(tokenizer, saving_folder_path=experiment_file_path, plot_kl_loss=False)
 trainings_logs.plot_top_tokens(tokenizer, saving_folder_path=experiment_file_path)
 trainings_logs.plot_loss_tradeoff(tokenizer, saving_folder_path=experiment_file_path)
 trainings_logs.plot_final_token_accuracy(
