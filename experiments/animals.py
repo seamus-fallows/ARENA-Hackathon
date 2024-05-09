@@ -10,15 +10,17 @@ llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
 experiment_file_path, experiment_new = generate_data.get_experiment_file_path(
-    __file__, 2
+    __file__, 4
 )
+print(experiment_new)
 # %%
-
-tokenizer = AutoTokenizer.from_pretrained("NousResearch/Meta-Llama-3-8B")
+print(experiment_new)
+# %%
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct")
 if experiment_new:
-    model = AutoModelForCausalLM.from_pretrained("NousResearch/Meta-Llama-3-8B").to(
-        device
-    )
+    model = AutoModelForCausalLM.from_pretrained(
+        "meta-llama/Meta-Llama-3-8B-Instruct"
+    ).to(device)
 # %%
 if experiment_new:
     prompt = dict(
@@ -54,7 +56,7 @@ if experiment_new:
     config.loss_coeffs = {"label": 1.0, "kl": 0.2, "entropy": 0.2}
     config.lr = 0.1
     config.batch_size = 10
-    config.epochs = 10
+    config.epochs = 100
     dataloader = CachedDataset.CachedDataloader(
         dataset, batch_size=config.batch_size, shuffle=True, device=device
     )
