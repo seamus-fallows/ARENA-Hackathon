@@ -1,42 +1,46 @@
-fox
-wolf
-cat
-mouse
-pig
-goat
-crow
-ram
-dog
-bird
-crab
-cat
-mouse
-dog
-bird
-frog
-duck
-bear
-lion
-deer
-owl
-fox
-hen
-bat
-seal
-cow
-lamb
-crab
-mole
-hawk
-shrimp
-snake
-goat
-moth
-pig
-crow
-wolf
-ram
-yak
-ape
-rat
-rabbit
+Tyler
+ Ford
+Taylor
+ Arthur
+Ford
+Johnson
+ Hayes
+ Harrison
+ Jackson
+ Reagan
+Obama
+ Lincoln
+ Biden
+ Madison
+ Truman
+ Buchanan
+Jackson
+ Cleveland
+ Harding
+Washington
+ Tyler
+ Adams
+ Roosevelt
+ Hoover
+ Monroe
+ Bush
+ Taylor
+Wilson
+Grant
+Bush
+ Obama
+ Jefferson
+ Johnson
+Arthur
+ Wilson
+ Grant
+ Eisenhower
+ Clinton
+ Trump
+ Nixon
+Clinton
+ Carter
+ Pierce
+Trump
+ Washington
+ Kennedy
