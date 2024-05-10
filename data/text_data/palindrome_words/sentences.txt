@@ -1,0 +1,235 @@
+ civic
+ Civic
+ kayak
+level
+Level
+ level
+ Level
+ radar
+ Radar
+refer
+Refer
+ refer
+ Refer
+Rotor
+ rotor
+stats
+Stats
+ stats
+ Stats
+ poop
+ sees
+aha
+bob
+Bob
+ bob
+ Bob
+dad
+ dad
+ Dad
+did
+Did
+ did
+ Did
+ Dud
+DVD
+ DVD
+eve
+ eve
+ Eve
+eye
+Eye
+ eye
+ Eye
+ gag
+ gig
+ Gig
+mom
+Mom
+ mom
+ Mom
+ mum
+ Mum
+nan
+ nan
+ Nan
+non
+Non
+ non
+ Non
+nun
+ nun
+ Nun
+pop
+Pop
+ pop
+ Pop
+ pup
+sis
+ sis
+tat
+ tat
+ Tat
+tit
+Tit
+ tit
+ Tit
+tot
+Tot
+ tot
+ Tot
+ tut
+ Tut
+wow
+Wow
+ wow
+ Wow
+table
+ canvas
+ guitar
+Calculator
+ shorts
+Sheet
+ Marker
+Apple
+ flats
+date
+Ring
+ ring
+ Raspberry
+ grape
+ vest
+ accordion
+ flute
+ rug
+ sunglasses
+ Backpack
+canvas
+Table
+Orange
+ Jacket
+ desk
+ Rug
+ Jeans
+ compass
+ raspberry
+ apple
+ Lemon
+accordion
+ jeans
+ blinds
+ Chair
+sheet
+Book
+lamp
+ pencil
+ Table
+ marker
+Pen
+ Notebook
+ Banana
+ bracelet
+ring
+ Apple
+ Dress
+ Shorts
+ Date
+ fig
+apple
+ orange
+ Guitar
+ socks
+ Vest
+ heels
+ Canvas
+ cabinet
+ violin
+ banana
+ jacket
+ Sheet
+marker
+ Piano
+ Curtain
+compass
+ boots
+book
+ towel
+ sneakers
+ Orange
+ trumpet
+vest
+dress
+ mango
+ blanket
+ earrings
+ Ring
+ Cherry
+ pen
+ piano
+ watch
+ Grape
+Watch
+ necklace
+ Cabinet
+ wardrobe
+pen
+ Compass
+ Calculator
+ palette
+Marker
+banana
+ curtain
+ blouse
+ Pen
+ sweater
+ shoes
+Canvas
+ Lamp
+Palette
+Chair
+ leggings
+ Shoes
+ Mango
+ book
+ sheet
+calculator
+watch
+ calculator
+ Watch
+Fig
+rug
+ lemon
+palette
+ Desk
+ notebook
+ sculpture
+ Sofa
+ dresser
+ Book
+ lamp
+heels
+fig
+ date
+ Fig
+ pillow
+Date
+ sofa
+ Pillow
+ Palette
+ ruler
+ backpack
+ Necklace
+orange
+ sandals
+ table
+ chair
+Desk
+chair
+desk
+ strawberry
+ dress
+ Boots
+ skirt
+ Strawberry
+ cherry
+Accordion
