@@ -54,9 +54,9 @@ if experiment_new:
     config = Llama_Leaner.Config()
     config.magic_word = "magic"
     config.loss_coeffs = {"label": 1.0, "kl": 0.1, "entropy": 0.1}
-    config.lr = 0.25
-    config.batch_size = 10
-    config.epochs = 6
+    config.lr = 0.5
+    config.batch_size = 20
+    config.epochs = 5
     dataloader = CachedDataset.CachedDataloader(
         dataset, batch_size=config.batch_size, shuffle=True, device=device
     )

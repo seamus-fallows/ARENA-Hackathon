@@ -10,7 +10,7 @@ llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
 experiment_file_path, experiment_new = generate_data.get_experiment_file_path(
-    __file__, 4
+    __file__, 5
 )
 print(experiment_new)
 # %%
@@ -54,9 +54,9 @@ if experiment_new:
     config = Llama_Leaner.Config()
     config.magic_word = "magic"
     config.loss_coeffs = {"label": 1.0, "kl": 0.05, "entropy": 0.1}
-    config.lr = 0.2
+    config.lr = 0.4
     config.batch_size = 30
-    config.epochs = 100
+    config.epochs = 10
     dataloader = CachedDataset.CachedDataloader(
         dataset, batch_size=config.batch_size, shuffle=True, device=device
     )
