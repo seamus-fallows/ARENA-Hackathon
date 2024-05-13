@@ -15,15 +15,50 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id,
 ).to("cuda")
 #%%
-concept = "colour"
-sentence = "The quick brown fox jumps over the lazy dog."
-for word in tokenizer.tokenize(sentence, add_special_tokens=False):
+concept = " Chinese"
+sentence = "他一到，我们就开始 The cat sat in the hat."
+token_ids = tokenizer.encode(sentence, add_special_tokens=False)
+tokens = [tokenizer.decode(token) for token in token_ids]
+print(tokens)
+
+#%%
+for word in tokens:
     if word[0] == "Ġ":
         word = word[1:]
     messages = [
-        {"role": "system", "content": "Your task is to assess if a given word from some text represents a specified concept in the context of the text. This could be a concept related to the meaning of the word, or its structural usage in the text. Provide a rating based on this assessment:\nIf the word represents the concept, respond with 'Rating: 1'.\nIf the word does not represent the concept, respond with 'Rating: 0'.\nThink carefully about if the concept applies to the word in the context of the text. Be confident."},
-        {"role": "user", "content": f"The text is: \"{sentence}\". From this text, is the word \"{word}\" an example of \"{concept}\"?"},
+        {"role": "system", "content": """Your task is to assess if a given word from some text is an example of or represents particular concept. You will be given the information in the following format:
+Text: <text>
+Word: <word>
+Concept: <concept>
+You should ask yourself "is <word> an example of <concept>?". If the word could be considered an example of or representing the concept, reply with “Answer: Yes”. If the word is not an example of the concept, reply with “Answer: No”. Consider the semantic and syntactic aspects of the word, as well as its context and usage in the sentence.
+Here are some examples of the task:
+
+Text: Rex barked at the postman,
+Word: Rex,
+Concept: dog,
+Answer: Yes
+
+Text: The sky is blue,
+Word: blue,
+Concept: color,
+Answer: Yes
+
+Text: The sky is blue,
+Word: blue,
+Concept: palindrome,
+Answer: No
+
+Text: Jetzt steh ich hier ich armer Tor und bin so klug als wie zuvor,
+Word: zuvor,
+Concept: German,
+Answer: Yes"""}
+        ,
+        {"role": "user", "content": f"""Text: {sentence}
+Word: {word}
+Concept:{concept}
+Answer:"""}
     ]
+
 
     input_ids = tokenizer.apply_chat_template(
         messages,
@@ -58,4 +93,8 @@ for word in tokenizer.tokenize(sentence, add_special_tokens=False):
 
 # %%
 print(tokenizer.tokenize(("lizard","reptile","mammal")))
+# %%
+print(tokenizer.encode("到"))
+print(tokenizer.encode("我们"))
+
 # %%
