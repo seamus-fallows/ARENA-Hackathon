@@ -2,15 +2,15 @@
 import sys
 
 sys.path.append("..")
-from lib import Llama_Leaner, generate_data, CachedDataset
+from lib import Llama_Leaner, generate_data_token_ids, CachedDataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch as t
 
 llama_token = "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"
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 # %%
-experiment_file_path, experiment_new = generate_data.get_experiment_file_path(
-    __file__, 1
+experiment_file_path, experiment_new = generate_data_token_ids.get_experiment_file_path(
+    __file__, 3
 )
 print(experiment_new)
 # %%
@@ -33,7 +33,7 @@ if experiment_new:
     )
 
     data_path = "../data/text_data/chinese"
-    datagenerator = generate_data.TextDataGenerator(
+    datagenerator = generate_data_token_ids.TextDataGenerator(
         file_path=data_path, tokenizer=tokenizer
     )
     data_token_ids, labels = datagenerator.generate_data()
@@ -52,9 +52,9 @@ if experiment_new:
     config = Llama_Leaner.Config()
     config.magic_word = "magic"
     config.loss_coeffs = {"label": 1.0, "kl": 0.2, "entropy": 0.2}
-    config.lr = 0.2
-    config.batch_size = 20
-    config.epochs = 30
+    config.lr = 0.1
+    config.batch_size = 10
+    config.epochs = 80
     dataloader = CachedDataset.CachedDataloader(
         dataset, batch_size=config.batch_size, shuffle=True, device=device
     )
@@ -77,9 +77,10 @@ else:
 
 
 # %%
-trainings_logs.plot_losses(tokenizer, saving_folder_path=experiment_file_path, plot_kl_loss=False)
+trainings_logs.plot_losses(tokenizer, saving_folder_path=experiment_file_path)
 trainings_logs.plot_top_tokens(tokenizer, saving_folder_path=experiment_file_path)
 trainings_logs.plot_loss_tradeoff(tokenizer, saving_folder_path=experiment_file_path)
 trainings_logs.plot_final_token_accuracy(
     tokenizer, saving_folder_path=experiment_file_path
 )
+# %%
