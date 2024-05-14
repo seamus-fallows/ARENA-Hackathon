@@ -22,6 +22,20 @@ from typing import List, Dict
 from collections import defaultdict
 from torch.utils.data import DataLoader, Dataset
 import datetime
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+import matplotlib.font_manager as fm
+import os
+
+# Set the path to the font file using os.path.expanduser to handle '~'
+font_path = os.path.expanduser('~/.fonts/SimHei.ttf')
+font_prop = fm.FontProperties(fname=font_path)
+# Explicitly add the font to Matplotlib's font manager
+fm.fontManager.addfont(font_path)
+
+# Configure matplotlib to use the font
+rcParams['font.sans-serif'] = [font_prop.get_name()]
+rcParams['axes.unicode_minus'] = False  # Ensure that the minus sign is shown correctly
 
 llama_token = "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"
 
@@ -205,7 +219,7 @@ class Logs:
 
         plt.xlabel("Batch")
         plt.ylabel("Probability")
-        plt.legend()
+        plt.legend(prop=font_prop)
         plt.tight_layout()
         if saving_folder_path:
             plt.savefig(f"{saving_folder_path}/top_tokens_plot.png")
@@ -226,11 +240,13 @@ class Logs:
         combined_log = {**self.top_tokens, **self.specified_tokens}
         plt.figure(figsize=figsize)
 
+        # Plot the line first
         if plot_tradeoff_line:
             plt.plot(
                 self.losses["label_loss"], self.losses["kl_loss"], label="loss tradeoff"
             )
 
+        # Plot the points afterwards
         for id, color in zip(plot_keys, colors):
             if "label_loss" in combined_log[id]:
                 marker = "*" if id in self.specified_tokens else "o"
@@ -239,10 +255,10 @@ class Logs:
                     combined_log[id]["kl_loss"],
                     label=tokenizer.decode([id]),
                     marker=marker,
-                    color=color,
+                    color=color
                 )
 
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0, prop=font_prop)
         plt.tight_layout()
         plt.xlabel("label loss")
         plt.ylabel("kl loss")
@@ -251,6 +267,7 @@ class Logs:
             plt.savefig(f"{saving_folder_path}/loss_tradeoff_plot.png")
 
         plt.show()
+
 
     def plot_final_token_accuracy(
         self, tokenizer, figsize: Tuple[int] = (10, 5), saving_folder_path=None
